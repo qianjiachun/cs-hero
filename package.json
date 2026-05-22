@@ -1,0 +1,67 @@
+{
+  "name": "cs-hero",
+  "version": "0.1.0",
+  "description": "CS2 auto recording and highlights",
+  "main": "./out/main/index.js",
+  "author": "",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "preinstall": "node scripts/ensure-osn.mjs",
+    "dev": "electron-vite dev",
+    "build": "electron-vite build && electron-builder",
+    "preview": "electron-vite preview",
+    "postinstall": "node scripts/ensure-electron.mjs && node scripts/ensure-ffmpeg.mjs && electron-builder install-app-deps",
+    "setup": "node scripts/setup.mjs",
+    "download-osn": "node scripts/ensure-osn.mjs",
+    "download-ffmpeg": "node scripts/ensure-ffmpeg.mjs",
+    "download-electron": "node scripts/ensure-electron.mjs"
+  },
+  "dependencies": {
+    "obs-studio-node": "file:./vendor/osn-0.26.22-release-win64.tar.gz",
+    "vue": "^3.5.34"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.1",
+    "@vitejs/plugin-vue": "^6.0.7",
+    "electron": "^42.2.0",
+    "electron-builder": "^26.8.1",
+    "electron-vite": "^6.0.0-beta.1",
+    "typescript": "^6.0.3",
+    "vite": "^8.0.14",
+    "vue-tsc": "^3.3.1"
+  },
+  "build": {
+    "appId": "com.cshero.app",
+    "productName": "CS Hero",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "out/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "resources",
+        "to": "resources",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
+    "asarUnpack": [
+      "**/node_modules/obs-studio-node/**"
+    ],
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "executableName": "cs_hero"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
+  }
+}

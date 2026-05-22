@@ -11,11 +11,7 @@ Thumbs.db
 .env
 .env.*
 !.env.example
-.cursor/*
-!.cursor/skills/
-.cursor/skills/*
-!.cursor/skills/git-commit/
-!.cursor/skills/git-commit/**
+.cursor/
 # FFmpeg 二进制由 scripts/ensure-ffmpeg.mjs 安装，仅保留目录占位
 resources/ffmpeg/*
 !resources/ffmpeg/.gitkeep

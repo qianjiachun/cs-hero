@@ -9,6 +9,8 @@ import type {
   Cs2IntegrationStatus,
   EditorExportTrimRequest,
   EditorOpenRequest,
+  FfmpegJobStatus,
+  MergeCreateRequest,
   MockMatchStatus,
   ObsRuntimeInfo,
   RecordingPocStatus
@@ -34,6 +36,7 @@ import { ensureRuntimeDirs } from '../shared/paths'
 import { listDisplays } from '../shared/displays'
 import { log } from '../shared/logger'
 import {
+  getFfmpegService,
   getGameIntegrationService,
   getObsService,
   getRecorderService,
@@ -41,6 +44,7 @@ import {
   shutdownAppServices
 } from '../services/app_services'
 import { EditorService } from '../services/editor_service'
+import { ClipMergeService } from '../services/clip_merge_service'
 import { paths } from '../shared/paths'
 import { openEditorWindow } from '../windows/editor_window'
 
@@ -48,6 +52,7 @@ let pocService: RecordingPocService | null = null
 let mockMatchService: MockMatchService | null = null
 let contentService: ContentService | null = null
 let editorService: EditorService | null = null
+let clipMergeService: ClipMergeService | null = null
 let appServicesStarted = false
 
 function getPocService(): RecordingPocService {
@@ -76,6 +81,19 @@ function getEditorService(): EditorService {
     editorService = new EditorService()
   }
   return editorService
+}
+
+function getClipMergeService(): ClipMergeService {
+  if (!clipMergeService) {
+    clipMergeService = new ClipMergeService()
+  }
+  return clipMergeService
+}
+
+function broadcastFfmpegJob(status: FfmpegJobStatus): void {
+  for (const win of BrowserWindow.getAllWindows()) {
+    win.webContents.send(IPC.FFMPEG_JOB_STATUS_EVENT, status)
+  }
 }
 
 function refreshMatchesBroadcast(): void {
@@ -156,6 +174,8 @@ export function registerIpcHandlers(): void {
   primeMatchesCache(() => getContentService())
   startMatchesFileWatcher(() => getContentService())
   log('App data root', getPocService().getStatus().appDataRoot)
+
+  getFfmpegService().setOnJobStatusChanged(broadcastFfmpegJob)
 
   void ensureAppServices()
 
@@ -295,11 +315,11 @@ export function registerIpcHandlers(): void {
     return true
   })
 
-  ipcMain.handle(IPC.EDITOR_GET_SESSION, (_evt, req: EditorOpenRequest) => {
+  ipcMain.handle(IPC.EDITOR_GET_SESSION, async (_evt, req: EditorOpenRequest) => {
     if (!req?.matchId || !req?.source) {
       throw new Error('无效的剪辑请求')
     }
-    const session = getEditorService().getSession(req)
+    const session = await getEditorService().getSessionAsync(req)
     return JSON.parse(JSON.stringify(session)) as typeof session
   })
 
@@ -318,6 +338,40 @@ export function registerIpcHandlers(): void {
     const err = await shell.openPath(paths.exportsDir)
     if (err) throw new Error(err)
     return true
+  })
+
+  ipcMain.handle(IPC.FFMPEG_GET_JOB_STATUS, (_evt, jobId: string) => {
+    if (!jobId) return null
+    return getFfmpegService().getJobStatus(jobId)
+  })
+
+  ipcMain.handle(IPC.FFMPEG_CANCEL_JOB, (_evt, jobId: string) => {
+    if (!jobId) throw new Error('无效任务')
+    const ok = getFfmpegService().cancelJob(jobId)
+    if (!ok) throw new Error('任务不存在或已结束')
+    return true
+  })
+
+  ipcMain.handle(IPC.MERGE_GET_CANDIDATES, async (_evt, matchId: string) => {
+    if (!matchId) throw new Error('无效对局')
+    return getClipMergeService().getMergeCandidates(matchId)
+  })
+
+  ipcMain.handle(IPC.MERGE_CREATE, async (_evt, request: MergeCreateRequest) => {
+    const result = await getClipMergeService().createMergedVideo({
+      ...request,
+      exportOnly: false
+    })
+    refreshMatchesBroadcast()
+    return result
+  })
+
+  ipcMain.handle(IPC.MERGE_EXPORT, async (_evt, request: MergeCreateRequest) => {
+    const result = await getClipMergeService().createMergedVideo({
+      ...request,
+      exportOnly: true
+    })
+    return result
   })
 }
 
@@ -344,5 +398,6 @@ export async function shutdownServices(): Promise<void> {
   mockMatchService = null
   contentService = null
   editorService = null
+  clipMergeService = null
   appServicesStarted = false
 }

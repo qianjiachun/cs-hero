@@ -79,6 +79,11 @@ export class RecorderService {
     return this.state !== 'idle'
   }
 
+  getActiveMatchId(): string | undefined {
+    if (this.state === 'idle' || this.state === 'waiting_cs2') return undefined
+    return this.matchId || undefined
+  }
+
   setStatusListener(listener: () => void): void {
     this.onStatusChanged = listener
   }

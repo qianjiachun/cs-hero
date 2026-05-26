@@ -357,7 +357,7 @@ const formatTime = (iso: string) => {
 <template>
   <main class="panel">
     <h1>CS Hero</h1>
-    <p class="subtitle">竖切 5 · 独立剪辑窗口 · 快速导出</p>
+    <p class="subtitle">竖切 6 · 事件时间轴 · 多段合并导出</p>
 
     <section class="card">
       <h2 class="section-title">运行状态</h2>
@@ -584,6 +584,7 @@ const formatTime = (iso: string) => {
           <p>
             <strong>片段</strong> {{ matchDetail.clipCount }} · <strong>书签</strong>
             {{ matchDetail.bookmarkCount }}
+            <span v-if="matchDetail.hasMergedVideo" class="merged-badge"> · 已有合并视频</span>
           </p>
           <div class="editor-actions">
             <button
@@ -726,6 +727,11 @@ h1 {
 
 .warn-inline {
   color: #fcd34d;
+}
+
+.merged-badge {
+  color: #86efac;
+  font-size: 0.85rem;
 }
 
 .error {

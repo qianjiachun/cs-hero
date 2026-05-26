@@ -25,5 +25,11 @@ export const IPC = {
   EDITOR_GET_SESSION: 'editor:get-session',
   EDITOR_EXPORT_TRIM: 'editor:export-trim',
   EDITOR_DELETE_CLIP: 'editor:delete-clip',
-  EDITOR_OPEN_EXPORTS: 'editor:open-exports'
+  EDITOR_OPEN_EXPORTS: 'editor:open-exports',
+  FFMPEG_GET_JOB_STATUS: 'ffmpeg:get-job-status',
+  FFMPEG_CANCEL_JOB: 'ffmpeg:cancel-job',
+  FFMPEG_JOB_STATUS_EVENT: 'ffmpeg:job-status-changed',
+  MERGE_GET_CANDIDATES: 'merge:get-candidates',
+  MERGE_CREATE: 'merge:create',
+  MERGE_EXPORT: 'merge:export'
 } as const

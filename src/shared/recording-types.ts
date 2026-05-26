@@ -66,6 +66,8 @@ export interface MatchJson {
   clips?: ClipInfo[]
   clip_errors?: string[]
   ended_reason?: string
+  /** 对局内合并导出的视频（中性命名，非 highlight） */
+  merged_video?: string
 }
 
 /** 最近对局分页列表 */
@@ -97,6 +99,7 @@ export interface ContentMatchSummary {
   bookmarkCount: number
   clipCount: number
   hasFullMatch: boolean
+  hasMergedVideo?: boolean
   parseError?: string
 }
 
@@ -105,6 +108,7 @@ export interface ContentMatchDetail extends ContentMatchSummary {
   clips: ClipInfo[]
   bookmarks: Array<{ type: BookmarkType; time: number }>
   full_match_path?: string
+  merged_video_path?: string
   match_json_path: string
 }
 
@@ -180,6 +184,21 @@ export interface EditorOpenRequest {
   clipFile?: string
 }
 
+export interface VideoMetadata {
+  durationSeconds: number
+  width?: number
+  height?: number
+  fps?: number
+  codec?: string
+  probeError?: string
+}
+
+export interface TimelineMarker {
+  type: BookmarkType
+  time: number
+  index: number
+}
+
 export interface EditorSession {
   matchId: string
   map: string
@@ -191,6 +210,76 @@ export interface EditorSession {
   displayName: string
   matchDir: string
   canDelete: boolean
+  /** 当前预览源的元数据 */
+  metadata?: VideoMetadata
+  /** 整局维度事件锚点（时间轴用） */
+  bookmarks: Array<{ type: BookmarkType; time: number }>
+  hasFullMatch: boolean
+  hasMergedVideo: boolean
+  clipSecondsBefore: number
+  clipSecondsAfter: number
+}
+
+export type FfmpegJobType = 'trim' | 'concat' | 'merge'
+export type FfmpegJobPhase = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled'
+
+export interface FfmpegJobStatus {
+  jobId: string
+  type: FfmpegJobType
+  phase: FfmpegJobPhase
+  progress: number
+  message: string
+  outputPath?: string
+  error?: string
+}
+
+export interface MergeClipCandidate {
+  file: string
+  type?: BookmarkType
+  time?: number
+  durationSeconds?: number
+}
+
+export interface MergeBookmarkCandidate {
+  index: number
+  type: BookmarkType
+  time: number
+}
+
+export interface MergeCandidates {
+  matchId: string
+  hasFullMatch: boolean
+  hasMergedVideo: boolean
+  fullMatchPath?: string
+  clips: MergeClipCandidate[]
+  bookmarks: MergeBookmarkCandidate[]
+  metadata?: VideoMetadata
+}
+
+export interface MergeSegmentSelection {
+  kind: 'clip'
+  clipFile: string
+}
+
+export interface MergeBookmarkSelection {
+  kind: 'bookmark'
+  bookmarkIndex: number
+}
+
+export type MergeSelectionItem = MergeSegmentSelection | MergeBookmarkSelection
+
+export interface MergeCreateRequest {
+  matchId: string
+  selections: MergeSelectionItem[]
+  /** true：仅写入 exports；false：写入对局目录 merged.mp4 */
+  exportOnly?: boolean
+}
+
+export interface MergeResult {
+  outputPath: string
+  fileName: string
+  durationSeconds?: number
+  usedCompatMode?: boolean
 }
 
 export interface EditorExportTrimRequest {

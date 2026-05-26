@@ -10,7 +10,8 @@ import { toMediaUrl } from '../shared/media_protocol'
 import { paths } from '../shared/paths'
 import { log, logError } from '../shared/logger'
 import { ContentService } from './content_service'
-import { FfmpegService } from './ffmpeg_service'
+import { getFfmpegService } from './app_services'
+import { loadSettings } from './settings_service'
 
 function formatExportTimestamp(d: Date): string {
   const pad = (n: number) => String(n).padStart(2, '0')
@@ -69,7 +70,7 @@ function resolveSourceVideo(
 
 export class EditorService {
   private readonly content = new ContentService()
-  private readonly ffmpeg = new FfmpegService()
+  private readonly ffmpeg = getFfmpegService()
   private exportBusy = false
 
   getSession(req: EditorOpenRequest): EditorSession {
@@ -83,8 +84,11 @@ export class EditorService {
 
     const matchDir = detail.dir
     const resolved = resolveSourceVideo(matchDir, req)
+    const settings = loadSettings()
+    const mergedPath = path.join(matchDir, 'merged.mp4')
+    const hasMergedVideo = fs.existsSync(mergedPath)
 
-    return {
+    const session: EditorSession = {
       matchId: req.matchId,
       map: detail.map,
       source: req.source,
@@ -93,8 +97,21 @@ export class EditorService {
       sourceVideoUrl: toMediaUrl(resolved.absolutePath),
       displayName: resolved.displayName,
       matchDir,
-      canDelete: req.source === 'clip' && !!resolved.clipFile
+      canDelete: req.source === 'clip' && !!resolved.clipFile,
+      bookmarks: detail.bookmarks ?? [],
+      hasFullMatch: detail.hasFullMatch,
+      hasMergedVideo,
+      clipSecondsBefore: settings.clipSecondsBefore,
+      clipSecondsAfter: settings.clipSecondsAfter
     }
+
+    return session
+  }
+
+  async getSessionAsync(req: EditorOpenRequest): Promise<EditorSession> {
+    const session = this.getSession(req)
+    const metadata = await this.ffmpeg.probeVideo(session.sourceVideoPath)
+    return { ...session, metadata }
   }
 
   async exportTrim(request: EditorExportTrimRequest): Promise<EditorExportTrimResult> {
@@ -143,10 +160,15 @@ export class EditorService {
     }
 
     const outputPath = path.join(paths.exportsDir, fileName)
+    const jobId = this.ffmpeg.createJob('trim', '导出中…')
 
     this.exportBusy = true
     try {
-      await this.ffmpeg.cutClip(session.sourceVideoPath, outputPath, start, duration)
+      await this.ffmpeg.cutClip(session.sourceVideoPath, outputPath, start, duration, {
+        jobId,
+        jobType: 'trim',
+        totalDuration: duration
+      })
       log('Editor export done', outputPath, `start=${start}`, `duration=${duration}`)
       return {
         outputPath,

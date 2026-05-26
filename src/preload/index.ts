@@ -12,6 +12,10 @@ import type {
   EditorExportTrimResult,
   EditorOpenRequest,
   EditorSession,
+  FfmpegJobStatus,
+  MergeCandidates,
+  MergeCreateRequest,
+  MergeResult,
   MockMatchStatus,
   ObsRuntimeInfo,
   RecordingPocStatus
@@ -96,7 +100,24 @@ const api = {
     ipcRenderer.invoke(IPC.EDITOR_EXPORT_TRIM, request),
   deleteClip: (matchId: string, clipFile: string): Promise<boolean> =>
     ipcRenderer.invoke(IPC.EDITOR_DELETE_CLIP, matchId, clipFile),
-  openExportsDir: (): Promise<boolean> => ipcRenderer.invoke(IPC.EDITOR_OPEN_EXPORTS)
+  openExportsDir: (): Promise<boolean> => ipcRenderer.invoke(IPC.EDITOR_OPEN_EXPORTS),
+  getFfmpegJobStatus: (jobId: string): Promise<FfmpegJobStatus | null> =>
+    ipcRenderer.invoke(IPC.FFMPEG_GET_JOB_STATUS, jobId),
+  cancelFfmpegJob: (jobId: string): Promise<boolean> =>
+    ipcRenderer.invoke(IPC.FFMPEG_CANCEL_JOB, jobId),
+  onFfmpegJobStatusChanged: (callback: (status: FfmpegJobStatus) => void) => {
+    const handler = (_: Electron.IpcRendererEvent, status: FfmpegJobStatus): void => {
+      callback(status)
+    }
+    ipcRenderer.on(IPC.FFMPEG_JOB_STATUS_EVENT, handler)
+    return () => ipcRenderer.removeListener(IPC.FFMPEG_JOB_STATUS_EVENT, handler)
+  },
+  getMergeCandidates: (matchId: string): Promise<MergeCandidates> =>
+    ipcRenderer.invoke(IPC.MERGE_GET_CANDIDATES, matchId),
+  createMergedVideo: (request: MergeCreateRequest): Promise<MergeResult> =>
+    ipcRenderer.invoke(IPC.MERGE_CREATE, request),
+  exportMergedVideo: (request: MergeCreateRequest): Promise<MergeResult> =>
+    ipcRenderer.invoke(IPC.MERGE_EXPORT, request)
 }
 
 try {

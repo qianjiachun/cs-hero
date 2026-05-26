@@ -56,6 +56,8 @@ function summarizeMatch(entry: MatchDirEntry): ContentMatchSummary {
   const fullMatchPath = path.join(dir, 'full_match.mp4')
   const clipCount = countClipsInMatchDir(dir)
   const hasFullMatch = fs.existsSync(fullMatchPath)
+  const mergedPath = path.join(dir, 'merged.mp4')
+  const hasMergedVideo = fs.existsSync(mergedPath)
 
   if (!fs.existsSync(matchJsonPath)) {
     return {
@@ -68,6 +70,7 @@ function summarizeMatch(entry: MatchDirEntry): ContentMatchSummary {
       bookmarkCount: 0,
       clipCount,
       hasFullMatch,
+      hasMergedVideo,
       parseError: '缺少 match.json'
     }
   }
@@ -84,6 +87,7 @@ function summarizeMatch(entry: MatchDirEntry): ContentMatchSummary {
       bookmarkCount: 0,
       clipCount,
       hasFullMatch,
+      hasMergedVideo,
       parseError: error
     }
   }
@@ -101,7 +105,8 @@ function summarizeMatch(entry: MatchDirEntry): ContentMatchSummary {
     encoder: data.encoder,
     bookmarkCount: data.bookmarks?.length ?? 0,
     clipCount,
-    hasFullMatch
+    hasFullMatch,
+    hasMergedVideo: hasMergedVideo || !!data.merged_video
   }
 }
 
@@ -145,6 +150,8 @@ export class ContentService {
     const clips = scanClipsInMatchDir(dir)
     const clipCount = clips.length
     const hasFullMatch = fs.existsSync(fullMatchPath)
+    const mergedPath = path.join(dir, 'merged.mp4')
+    const hasMergedVideo = fs.existsSync(mergedPath)
 
     if (!fs.existsSync(matchJsonPath)) {
       return {
@@ -157,6 +164,7 @@ export class ContentService {
         bookmarkCount: 0,
         clipCount,
         hasFullMatch,
+        hasMergedVideo,
         parseError: '缺少 match.json',
         clips,
         bookmarks: [],
@@ -177,6 +185,7 @@ export class ContentService {
         bookmarkCount: 0,
         clipCount,
         hasFullMatch,
+        hasMergedVideo,
         parseError: error,
         clips,
         bookmarks: [],
@@ -199,9 +208,11 @@ export class ContentService {
       bookmarkCount: data.bookmarks?.length ?? 0,
       clipCount,
       hasFullMatch,
+      hasMergedVideo: hasMergedVideo || !!data.merged_video,
       clips,
       bookmarks: data.bookmarks ?? [],
       full_match_path: hasFullMatch ? fullMatchPath : undefined,
+      merged_video_path: hasMergedVideo ? mergedPath : undefined,
       match_json_path: matchJsonPath
     }
   }

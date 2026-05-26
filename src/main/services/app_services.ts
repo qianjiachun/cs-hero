@@ -2,11 +2,20 @@ import { ObsService } from './obs_service'
 import { RecorderService } from './recorder_service'
 import { GameIntegrationService } from './game_integration_service'
 import { GameDetectionService } from './game_detection_service'
+import { FfmpegService } from './ffmpeg_service'
 
 let obsService: ObsService | null = null
+let ffmpegService: FfmpegService | null = null
 let recorderService: RecorderService | null = null
 let gameIntegrationService: GameIntegrationService | null = null
 let gameDetectionService: GameDetectionService | null = null
+
+export function getFfmpegService(): FfmpegService {
+  if (!ffmpegService) {
+    ffmpegService = new FfmpegService()
+  }
+  return ffmpegService
+}
 
 export function getObsService(): ObsService {
   if (!obsService) {

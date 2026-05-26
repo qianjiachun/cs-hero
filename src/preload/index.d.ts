@@ -10,6 +10,10 @@ import type {
   EditorExportTrimResult,
   EditorOpenRequest,
   EditorSession,
+  FfmpegJobStatus,
+  MergeCandidates,
+  MergeCreateRequest,
+  MergeResult,
   MockMatchStatus,
   ObsRuntimeInfo,
   RecordingPocStatus
@@ -43,6 +47,12 @@ export interface CsHeroApi {
   exportTrim: (request: EditorExportTrimRequest) => Promise<EditorExportTrimResult>
   deleteClip: (matchId: string, clipFile: string) => Promise<boolean>
   openExportsDir: () => Promise<boolean>
+  getFfmpegJobStatus: (jobId: string) => Promise<FfmpegJobStatus | null>
+  cancelFfmpegJob: (jobId: string) => Promise<boolean>
+  onFfmpegJobStatusChanged: (callback: (status: FfmpegJobStatus) => void) => () => void
+  getMergeCandidates: (matchId: string) => Promise<MergeCandidates>
+  createMergedVideo: (request: MergeCreateRequest) => Promise<MergeResult>
+  exportMergedVideo: (request: MergeCreateRequest) => Promise<MergeResult>
 }
 
 declare global {

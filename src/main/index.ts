@@ -1,20 +1,16 @@
 import { app, BrowserWindow } from 'electron'
-import fs from 'fs'
-import path from 'path'
 
 // 双显卡笔记本：让 Electron 与 OBS 子进程走独显，game_capture 才能与 CS2 共享 D3D 纹理
 app.commandLine.appendSwitch('force-high-performance-gpu')
 app.commandLine.appendSwitch('ignore-gpu-blocklist')
 import { registerIpcHandlers, scheduleObsWarmUp, shutdownServices } from './ipc/handlers'
+import { closeEditorWindow } from './windows/editor_window'
+import { setMainWindow } from './windows/main_window'
+import { resolvePreloadPath, resolveRendererIndexHtml } from './shared/browser_window_paths'
+import { setupMediaProtocolHandler } from './shared/media_protocol'
 import { ensureRuntimeDirs } from './shared/paths'
 import { log, logError } from './shared/logger'
-
-function resolvePreloadPath(): string {
-  const base = path.join(__dirname, '../preload/index')
-  const candidates = [`${base}.cjs`, `${base}.js`, `${base}.mjs`]
-  const chosen = candidates.find((p) => fs.existsSync(p)) ?? `${base}.cjs`
-  return path.resolve(chosen)
-}
+import fs from 'fs'
 
 function createWindow(): BrowserWindow {
   const preloadPath = resolvePreloadPath()
@@ -41,7 +37,7 @@ function createWindow(): BrowserWindow {
     win.loadURL(devUrl)
     win.webContents.openDevTools({ mode: 'detach' })
   } else {
-    win.loadFile(path.join(__dirname, '../renderer/index.html'))
+    win.loadFile(resolveRendererIndexHtml())
   }
 
   let windowShown = false
@@ -66,16 +62,26 @@ function createWindow(): BrowserWindow {
     windowShown = true
     tryScheduleObsWarmUp()
   })
+
+  setMainWindow(win)
+  win.on('closed', () => {
+    setMainWindow(null)
+    closeEditorWindow()
+  })
+
   return win
 }
 
 app.whenReady().then(() => {
+  setupMediaProtocolHandler()
   ensureRuntimeDirs()
   registerIpcHandlers()
   createWindow()
 
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow()
+    if (BrowserWindow.getAllWindows().length === 0) {
+      createWindow()
+    }
   })
 })
 

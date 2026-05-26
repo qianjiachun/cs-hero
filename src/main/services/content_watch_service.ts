@@ -1,47 +1,31 @@
 import fs from 'fs'
-import type { ContentMatchSummary } from '../../shared/recording-types'
 import { paths } from '../shared/paths'
 import { createDebouncedWatcher, type DebouncedWatcher } from '../shared/watch_debounced'
 import type { ContentService } from './content_service'
 
 const WATCH_DEBOUNCE_MS = 200
 
-function matchesFingerprint(matches: ContentMatchSummary[]): string {
-  return JSON.stringify(
-    matches.map((m) => ({
-      id: m.id,
-      status: m.status,
-      clipCount: m.clipCount,
-      bookmarkCount: m.bookmarkCount,
-      hasFullMatch: m.hasFullMatch,
-      duration: m.duration,
-      parseError: m.parseError
-    }))
-  )
-}
-
 let watcher: DebouncedWatcher | null = null
 let lastFingerprint = ''
-let onMatchesChanged: ((matches: ContentMatchSummary[]) => void) | null = null
+let onMatchesChanged: (() => void) | null = null
 let getContentService: (() => ContentService) | null = null
 
-export function setOnMatchesChanged(handler: (matches: ContentMatchSummary[]) => void): void {
+export function setOnMatchesChanged(handler: () => void): void {
   onMatchesChanged = handler
 }
 
 function scanAndNotifyIfChanged(): void {
   if (!getContentService) return
-  const matches = getContentService().listMatches()
-  const fp = matchesFingerprint(matches)
+  const fp = getContentService().listMatchesFingerprint()
   if (fp === lastFingerprint) return
   lastFingerprint = fp
-  onMatchesChanged?.(matches)
+  onMatchesChanged?.()
 }
 
-/** 启动后首次扫描，建立指纹但不广播（由渲染进程 IPC 拉取初始列表）。 */
+/** 启动后建立指纹，不广播（由渲染进程 IPC 拉取初始列表）。 */
 export function primeMatchesCache(getService: () => ContentService): void {
   getContentService = getService
-  lastFingerprint = matchesFingerprint(getService().listMatches())
+  lastFingerprint = getService().listMatchesFingerprint()
 }
 
 export function startMatchesFileWatcher(getService: () => ContentService): void {

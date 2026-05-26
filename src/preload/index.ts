@@ -3,9 +3,15 @@ import { IPC } from '../shared/ipc-channels'
 import type { DisplayInfo } from '../shared/display-types'
 import type { AppSettings } from '../shared/settings'
 import type {
+  ContentListMatchesOptions,
+  ContentListMatchesResult,
   ContentMatchDetail,
   ContentMatchSummary,
   Cs2IntegrationStatus,
+  EditorExportTrimRequest,
+  EditorExportTrimResult,
+  EditorOpenRequest,
+  EditorSession,
   MockMatchStatus,
   ObsRuntimeInfo,
   RecordingPocStatus
@@ -68,11 +74,11 @@ const api = {
     ipcRenderer.on(IPC.OBS_RUNTIME_EVENT, handler)
     return () => ipcRenderer.removeListener(IPC.OBS_RUNTIME_EVENT, handler)
   },
-  listMatches: (): Promise<ContentMatchSummary[]> =>
-    ipcRenderer.invoke(IPC.CONTENT_LIST_MATCHES),
-  onMatchesChanged: (callback: (matches: ContentMatchSummary[]) => void) => {
-    const handler = (_: Electron.IpcRendererEvent, matches: ContentMatchSummary[]): void => {
-      callback(matches)
+  listMatches: (options?: ContentListMatchesOptions): Promise<ContentListMatchesResult> =>
+    ipcRenderer.invoke(IPC.CONTENT_LIST_MATCHES, options),
+  onMatchesChanged: (callback: () => void) => {
+    const handler = (): void => {
+      callback()
     }
     ipcRenderer.on(IPC.CONTENT_MATCHES_CHANGED_EVENT, handler)
     return () => ipcRenderer.removeListener(IPC.CONTENT_MATCHES_CHANGED_EVENT, handler)
@@ -81,7 +87,16 @@ const api = {
     ipcRenderer.invoke(IPC.CONTENT_GET_MATCH, matchId),
   openPath: (targetPath: string): Promise<boolean> =>
     ipcRenderer.invoke(IPC.CONTENT_OPEN_PATH, targetPath),
-  listDisplays: (): Promise<DisplayInfo[]> => ipcRenderer.invoke(IPC.DISPLAYS_LIST)
+  listDisplays: (): Promise<DisplayInfo[]> => ipcRenderer.invoke(IPC.DISPLAYS_LIST),
+  openEditor: (req: EditorOpenRequest): Promise<boolean> =>
+    ipcRenderer.invoke(IPC.EDITOR_OPEN, req),
+  getEditorSession: (req: EditorOpenRequest): Promise<EditorSession> =>
+    ipcRenderer.invoke(IPC.EDITOR_GET_SESSION, req),
+  exportTrim: (request: EditorExportTrimRequest): Promise<EditorExportTrimResult> =>
+    ipcRenderer.invoke(IPC.EDITOR_EXPORT_TRIM, request),
+  deleteClip: (matchId: string, clipFile: string): Promise<boolean> =>
+    ipcRenderer.invoke(IPC.EDITOR_DELETE_CLIP, matchId, clipFile),
+  openExportsDir: (): Promise<boolean> => ipcRenderer.invoke(IPC.EDITOR_OPEN_EXPORTS)
 }
 
 try {

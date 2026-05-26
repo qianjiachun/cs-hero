@@ -62,9 +62,24 @@ export interface MatchJson {
   recovered_from?: string
   full_match_retained?: boolean
   bookmarks: Array<{ type: BookmarkType; time: number }>
-  clips: ClipInfo[]
+  /** @deprecated 仅兼容旧数据；新对局不写此字段，片段以 clips/ 目录扫描为准 */
+  clips?: ClipInfo[]
   clip_errors?: string[]
   ended_reason?: string
+}
+
+/** 最近对局分页列表 */
+export interface ContentListMatchesResult {
+  items: ContentMatchSummary[]
+  total: number
+  offset: number
+  limit: number
+  hasMore: boolean
+}
+
+export interface ContentListMatchesOptions {
+  offset?: number
+  limit?: number
 }
 
 /** 第四条竖切：最近对局列表项 */
@@ -156,4 +171,38 @@ export interface MockMatchStatus {
   bookmarkCount?: number
   clipCount?: number
   error?: string
+}
+
+/** 第五条竖切：打开剪辑窗口 */
+export interface EditorOpenRequest {
+  matchId: string
+  source: 'full_match' | 'clip'
+  clipFile?: string
+}
+
+export interface EditorSession {
+  matchId: string
+  map: string
+  source: 'full_match' | 'clip'
+  clipFile?: string
+  sourceVideoPath: string
+  /** file:// URL，供 <video> 预览 */
+  sourceVideoUrl: string
+  displayName: string
+  matchDir: string
+  canDelete: boolean
+}
+
+export interface EditorExportTrimRequest {
+  matchId: string
+  source: 'full_match' | 'clip'
+  clipFile?: string
+  startSeconds: number
+  endSeconds: number
+}
+
+export interface EditorExportTrimResult {
+  outputPath: string
+  fileName: string
+  durationSeconds: number
 }

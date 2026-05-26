@@ -149,8 +149,7 @@ export class RecordingPocService {
         encoder: runtime?.selectedEncoder ?? 'unknown',
         status: remuxOk ? 'complete' : 'incomplete',
         source_mkv: mkvPath,
-        bookmarks: [],
-        clips: []
+        bookmarks: []
       }
 
       fs.writeFileSync(matchJsonPath, JSON.stringify(matchJson, null, 2), 'utf-8')

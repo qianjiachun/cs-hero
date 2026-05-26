@@ -47,7 +47,12 @@ const launchOptionActionMessage = ref('')
 const settings = ref<AppSettings | null>(null)
 const displays = ref<DisplayInfo[]>([])
 const obsRuntime = ref<ObsRuntimeInfo | null>(null)
+const MATCHES_PAGE_SIZE = 20
+
 const matches = ref<ContentMatchSummary[]>([])
+const matchesTotal = ref(0)
+const matchesHasMore = ref(false)
+const matchesLoading = ref(false)
 const selectedMatchId = ref<string | null>(null)
 const matchDetail = ref<ContentMatchDetail | null>(null)
 
@@ -67,19 +72,38 @@ let cs2PollTimer: ReturnType<typeof setInterval> | undefined
 let settingsHydrated = false
 let settingsApplyTimer: ReturnType<typeof setTimeout> | undefined
 
-function applyMatchesList(list: ContentMatchSummary[]): void {
-  matches.value = list
-}
-
 async function refreshSelectedMatchDetail(): Promise<void> {
   if (!window.csHero || !selectedMatchId.value) return
   matchDetail.value = await window.csHero.getMatch(selectedMatchId.value)
 }
 
+async function loadMatchesPage(reset: boolean): Promise<void> {
+  if (!window.csHero || matchesLoading.value) return
+  matchesLoading.value = true
+  try {
+    const offset = reset ? 0 : matches.value.length
+    const result = await window.csHero.listMatches({ offset, limit: MATCHES_PAGE_SIZE })
+    if (reset) {
+      matches.value = result.items
+    } else {
+      matches.value = [...matches.value, ...result.items]
+    }
+    matchesTotal.value = result.total
+    matchesHasMore.value = result.hasMore
+  } finally {
+    matchesLoading.value = false
+  }
+}
+
 async function refreshMatches(): Promise<void> {
   if (!window.csHero) return
-  applyMatchesList(await window.csHero.listMatches())
+  await loadMatchesPage(true)
   await refreshSelectedMatchDetail()
+}
+
+async function loadMoreMatches(): Promise<void> {
+  if (!matchesHasMore.value || matchesLoading.value) return
+  await loadMatchesPage(false)
 }
 
 async function refresh(): Promise<void> {
@@ -142,6 +166,30 @@ async function selectMatch(id: string): Promise<void> {
 async function openMatchDir(): Promise<void> {
   if (!window.csHero || !matchDetail.value?.dir) return
   await window.csHero.openPath(matchDetail.value.dir)
+}
+
+const editorOpenError = ref('')
+
+async function openEditor(source: 'full_match' | 'clip', clipFile?: string): Promise<void> {
+  if (!window.csHero || !selectedMatchId.value) return
+  editorOpenError.value = ''
+  try {
+    await window.csHero.openEditor({
+      matchId: selectedMatchId.value,
+      source,
+      clipFile
+    })
+  } catch (err) {
+    editorOpenError.value = err instanceof Error ? err.message : String(err)
+  }
+}
+
+function canEditFullMatch(): boolean {
+  return !!matchDetail.value?.hasFullMatch && !!matchDetail.value.full_match_path
+}
+
+function canEditAnyClip(): boolean {
+  return (matchDetail.value?.clips.length ?? 0) > 0 && !matchDetail.value?.parseError
 }
 
 async function copyRequiredLaunchOption(): Promise<void> {
@@ -263,9 +311,8 @@ onMounted(async () => {
   unsubObsRuntime = window.csHero?.onObsRuntimeChanged((info) => {
     obsRuntime.value = info
   })
-  unsubMatches = window.csHero?.onMatchesChanged((list) => {
-    applyMatchesList(list)
-    void refreshSelectedMatchDetail()
+  unsubMatches = window.csHero?.onMatchesChanged(() => {
+    void loadMatchesPage(true).then(() => refreshSelectedMatchDetail())
   })
   await refresh()
   await nextTick()
@@ -310,7 +357,7 @@ const formatTime = (iso: string) => {
 <template>
   <main class="panel">
     <h1>CS Hero</h1>
-    <p class="subtitle">竖切 4 · 设置 · 最近对局 · 自动录制状态</p>
+    <p class="subtitle">竖切 5 · 独立剪辑窗口 · 快速导出</p>
 
     <section class="card">
       <h2 class="section-title">运行状态</h2>
@@ -497,8 +544,13 @@ const formatTime = (iso: string) => {
         <h2 class="section-title">最近对局</h2>
         <button class="link-btn" type="button" @click="refreshMatches">刷新</button>
       </div>
-      <p v-if="matches.length === 0" class="message">暂无对局，启动 CS2 或运行 Mock 对局后会出现在此。</p>
-      <ul v-else class="match-list">
+      <p v-if="matches.length === 0 && !matchesLoading" class="message">
+        暂无对局，启动 CS2 或运行 Mock 对局后会出现在此。
+      </p>
+      <p v-else-if="matchesTotal > 0" class="message subtle">
+        共 {{ matchesTotal }} 局，已加载 {{ matches.length }} 局（片段数来自 clips 文件夹扫描）
+      </p>
+      <ul v-if="matches.length > 0" class="match-list">
         <li
           v-for="m in matches"
           :key="m.id"
@@ -513,6 +565,16 @@ const formatTime = (iso: string) => {
           </span>
         </li>
       </ul>
+      <div v-if="matchesHasMore" class="load-more-row">
+        <button
+          class="secondary-btn load-more-btn"
+          type="button"
+          :disabled="matchesLoading"
+          @click="loadMoreMatches"
+        >
+          {{ matchesLoading ? '加载中…' : '加载更多' }}
+        </button>
+      </div>
       <template v-if="matchDetail">
         <div class="detail-box">
           <p><strong>目录</strong> {{ matchDetail.dir }}</p>
@@ -523,10 +585,34 @@ const formatTime = (iso: string) => {
             <strong>片段</strong> {{ matchDetail.clipCount }} · <strong>书签</strong>
             {{ matchDetail.bookmarkCount }}
           </p>
+          <div class="editor-actions">
+            <button
+              class="secondary-btn"
+              type="button"
+              :disabled="!canEditFullMatch()"
+              :title="canEditFullMatch() ? '' : '整局录像不存在'"
+              @click="openEditor('full_match')"
+            >
+              剪辑整局
+            </button>
+            <button class="secondary-btn" type="button" @click="openMatchDir">打开对局文件夹</button>
+          </div>
+          <p v-if="!canEditFullMatch() && !canEditAnyClip()" class="message warn">
+            暂无可剪辑素材（整局与片段均不可用）
+          </p>
           <ul v-if="matchDetail.clips.length" class="clip-list">
-            <li v-for="c in matchDetail.clips" :key="c.file">{{ c.file }}</li>
+            <li v-for="c in matchDetail.clips" :key="c.file" class="clip-row">
+              <span class="clip-name">{{ c.file }}</span>
+              <button
+                class="link-btn clip-edit-btn"
+                type="button"
+                @click.stop="openEditor('clip', c.file)"
+              >
+                剪辑/导出
+              </button>
+            </li>
           </ul>
-          <button class="secondary-btn" type="button" @click="openMatchDir">打开对局文件夹</button>
+          <p v-if="editorOpenError" class="error">{{ editorOpenError }}</p>
         </div>
       </template>
     </section>
@@ -864,10 +950,46 @@ h1 {
   margin: 0 0 8px;
 }
 
+.editor-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
 .clip-list {
-  margin: 8px 0;
-  padding-left: 18px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
   color: #cbd5e1;
+}
+
+.clip-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 0;
+  border-bottom: 1px solid #1e293b;
+}
+
+.clip-name {
+  font-size: 0.8rem;
+  word-break: break-all;
+}
+
+.clip-edit-btn {
+  flex-shrink: 0;
+}
+
+.load-more-row {
+  margin-top: 12px;
+  text-align: center;
+}
+
+.load-more-btn {
+  width: 100%;
+  max-width: 280px;
 }
 
 .dev-toggle {

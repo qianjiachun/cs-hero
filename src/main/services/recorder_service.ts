@@ -449,7 +449,7 @@ export class RecorderService {
       logError('Remux failed', err)
     }
 
-    let clips: MatchJson['clips'] = []
+    let generatedClipCount = 0
     const settings = loadSettings()
     const shouldGenerateClips = this.matchSource !== 'manual'
 
@@ -466,9 +466,9 @@ export class RecorderService {
           killBookmarks,
           settings
         )
-        clips = result.clips
+        generatedClipCount = result.clips.length
         clipErrors.push(...result.errors)
-        this.clipCount = clips.length
+        this.clipCount = generatedClipCount
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err)
         clipErrors.push(`clips: ${msg}`)
@@ -485,7 +485,7 @@ export class RecorderService {
       remuxOk &&
       fs.existsSync(outputMp4) &&
       !settings.keepFullMatch &&
-      clips.length > 0 &&
+      generatedClipCount > 0 &&
       clipErrors.length === 0
     ) {
       try {
@@ -513,7 +513,6 @@ export class RecorderService {
       source_mkv: sourceMkv,
       full_match_retained: fullMatchRetained,
       bookmarks: this.bookmarks.map(({ type, time }) => ({ type, time })),
-      clips,
       ...(clipErrors.length > 0 ? { clip_errors: clipErrors } : {}),
       ...(this.endedReason ? { ended_reason: this.endedReason } : {})
     }
@@ -523,7 +522,7 @@ export class RecorderService {
     this.state = 'idle'
     this.finishing = false
     this.bookmarkCount = this.bookmarks.length
-    this.clipCount = clips.length
+    this.clipCount = generatedClipCount
 
     if (!remuxOk) {
       this.error = 'MKV 已生成，但 remux 为 MP4 失败'
@@ -532,7 +531,7 @@ export class RecorderService {
     }
 
     this.setMessage('对局完成')
-    log('Match complete', this.matchDir, `clips=${clips.length}`, `reason=${this.endedReason}`)
+    log('Match complete', this.matchDir, `clips=${generatedClipCount}`, `reason=${this.endedReason}`)
     return matchJson
   }
 

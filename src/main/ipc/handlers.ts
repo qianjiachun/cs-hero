@@ -1,10 +1,14 @@
 import { BrowserWindow, ipcMain, shell } from 'electron'
+import fs from 'fs'
 import type {
   AppSettings
 } from '../../shared/settings'
 import type {
-  ContentMatchSummary,
+  ContentListMatchesOptions,
+  ContentListMatchesResult,
   Cs2IntegrationStatus,
+  EditorExportTrimRequest,
+  EditorOpenRequest,
   MockMatchStatus,
   ObsRuntimeInfo,
   RecordingPocStatus
@@ -36,10 +40,14 @@ import {
   startAppServices,
   shutdownAppServices
 } from '../services/app_services'
+import { EditorService } from '../services/editor_service'
+import { paths } from '../shared/paths'
+import { openEditorWindow } from '../windows/editor_window'
 
 let pocService: RecordingPocService | null = null
 let mockMatchService: MockMatchService | null = null
 let contentService: ContentService | null = null
+let editorService: EditorService | null = null
 let appServicesStarted = false
 
 function getPocService(): RecordingPocService {
@@ -61,6 +69,17 @@ function getContentService(): ContentService {
     contentService = new ContentService()
   }
   return contentService
+}
+
+function getEditorService(): EditorService {
+  if (!editorService) {
+    editorService = new EditorService()
+  }
+  return editorService
+}
+
+function refreshMatchesBroadcast(): void {
+  notifyMatchesChanged()
 }
 
 function broadcastRecordingStatus(status: RecordingPocStatus): void {
@@ -93,9 +112,9 @@ function broadcastObsRuntime(info: ObsRuntimeInfo | null): void {
   }
 }
 
-function broadcastMatches(matches: ContentMatchSummary[]): void {
+function notifyMatchesChanged(): void {
   for (const win of BrowserWindow.getAllWindows()) {
-    win.webContents.send(IPC.CONTENT_MATCHES_CHANGED_EVENT, matches)
+    win.webContents.send(IPC.CONTENT_MATCHES_CHANGED_EVENT)
   }
 }
 
@@ -133,7 +152,7 @@ export function registerIpcHandlers(): void {
     broadcastSettings(settings)
   })
   startSettingsFileWatcher()
-  setOnMatchesChanged((matches) => broadcastMatches(matches))
+  setOnMatchesChanged(() => notifyMatchesChanged())
   primeMatchesCache(() => getContentService())
   startMatchesFileWatcher(() => getContentService())
   log('App data root', getPocService().getStatus().appDataRoot)
@@ -244,9 +263,14 @@ export function registerIpcHandlers(): void {
     }
   })
 
-  ipcMain.handle(IPC.CONTENT_LIST_MATCHES, () => {
-    return getContentService().listMatches()
-  })
+  ipcMain.handle(
+    IPC.CONTENT_LIST_MATCHES,
+    (_evt, options?: ContentListMatchesOptions): ContentListMatchesResult => {
+      const offset = options?.offset ?? 0
+      const limit = options?.limit ?? 20
+      return getContentService().listMatches(offset, limit)
+    }
+  )
 
   ipcMain.handle(IPC.CONTENT_GET_MATCH, (_evt, matchId: string) => {
     return getContentService().getMatch(matchId)
@@ -262,6 +286,39 @@ export function registerIpcHandlers(): void {
   })
 
   ipcMain.handle(IPC.DISPLAYS_LIST, () => listDisplays())
+
+  ipcMain.handle(IPC.EDITOR_OPEN, async (_evt, req: EditorOpenRequest) => {
+    if (!req?.matchId || !req?.source) {
+      throw new Error('无效的剪辑请求')
+    }
+    await openEditorWindow(req)
+    return true
+  })
+
+  ipcMain.handle(IPC.EDITOR_GET_SESSION, (_evt, req: EditorOpenRequest) => {
+    if (!req?.matchId || !req?.source) {
+      throw new Error('无效的剪辑请求')
+    }
+    const session = getEditorService().getSession(req)
+    return JSON.parse(JSON.stringify(session)) as typeof session
+  })
+
+  ipcMain.handle(IPC.EDITOR_EXPORT_TRIM, async (_evt, request: EditorExportTrimRequest) => {
+    return getEditorService().exportTrim(request)
+  })
+
+  ipcMain.handle(IPC.EDITOR_DELETE_CLIP, (_evt, matchId: string, clipFile: string) => {
+    getEditorService().deleteClip(matchId, clipFile)
+    refreshMatchesBroadcast()
+    return true
+  })
+
+  ipcMain.handle(IPC.EDITOR_OPEN_EXPORTS, async () => {
+    fs.mkdirSync(paths.exportsDir, { recursive: true })
+    const err = await shell.openPath(paths.exportsDir)
+    if (err) throw new Error(err)
+    return true
+  })
 }
 
 /** 窗口已显示后再预热 OBS，避免与首屏渲染争抢主线程 */
@@ -286,5 +343,6 @@ export async function shutdownServices(): Promise<void> {
   pocService = null
   mockMatchService = null
   contentService = null
+  editorService = null
   appServicesStarted = false
 }

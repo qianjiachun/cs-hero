@@ -20,5 +20,10 @@ export const IPC = {
   CONTENT_MATCHES_CHANGED_EVENT: 'content:matches-changed',
   OBS_GET_RUNTIME_INFO: 'obs:get-runtime-info',
   OBS_RUNTIME_EVENT: 'obs:runtime-changed',
-  DISPLAYS_LIST: 'displays:list'
+  DISPLAYS_LIST: 'displays:list',
+  EDITOR_OPEN: 'editor:open',
+  EDITOR_GET_SESSION: 'editor:get-session',
+  EDITOR_EXPORT_TRIM: 'editor:export-trim',
+  EDITOR_DELETE_CLIP: 'editor:delete-clip',
+  EDITOR_OPEN_EXPORTS: 'editor:open-exports'
 } as const

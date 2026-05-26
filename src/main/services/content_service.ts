@@ -1,9 +1,23 @@
 import fs from 'fs'
 import path from 'path'
-import type { ContentMatchDetail, ContentMatchSummary, MatchJson } from '../../shared/recording-types'
+import type {
+  ContentListMatchesResult,
+  ContentMatchDetail,
+  ContentMatchSummary,
+  MatchJson
+} from '../../shared/recording-types'
 import { resolveMatchDisplayMap } from '../../shared/match-display'
 import { paths } from '../shared/paths'
 import { log } from '../shared/logger'
+import { countClipsInMatchDir, scanClipsInMatchDir } from './clips_scan'
+
+const DEFAULT_PAGE_SIZE = 20
+
+interface MatchDirEntry {
+  id: string
+  dir: string
+  sortKey: number
+}
 
 function parseMatchJson(filePath: string): { data?: MatchJson; error?: string } {
   try {
@@ -15,99 +29,142 @@ function parseMatchJson(filePath: string): { data?: MatchJson; error?: string } 
   }
 }
 
-function dirSortKey(dirPath: string, matchJson?: MatchJson): number {
-  if (matchJson?.start_time) {
-    const t = Date.parse(matchJson.start_time)
-    if (!Number.isNaN(t)) return t
+function listSortedMatchDirs(): MatchDirEntry[] {
+  const matchesDir = paths.matchesDir
+  if (!fs.existsSync(matchesDir)) return []
+
+  const entries: MatchDirEntry[] = []
+  for (const ent of fs.readdirSync(matchesDir, { withFileTypes: true })) {
+    if (!ent.isDirectory()) continue
+    const dir = path.join(matchesDir, ent.name)
+    let sortKey = 0
+    try {
+      sortKey = fs.statSync(dir).mtimeMs
+    } catch {
+      sortKey = 0
+    }
+    entries.push({ id: ent.name, dir, sortKey })
   }
-  try {
-    return fs.statSync(dirPath).mtimeMs
-  } catch {
-    return 0
+
+  entries.sort((a, b) => b.sortKey - a.sortKey)
+  return entries
+}
+
+function summarizeMatch(entry: MatchDirEntry): ContentMatchSummary {
+  const { id, dir } = entry
+  const matchJsonPath = path.join(dir, 'match.json')
+  const fullMatchPath = path.join(dir, 'full_match.mp4')
+  const clipCount = countClipsInMatchDir(dir)
+  const hasFullMatch = fs.existsSync(fullMatchPath)
+
+  if (!fs.existsSync(matchJsonPath)) {
+    return {
+      id,
+      dir,
+      map: resolveMatchDisplayMap(id),
+      start_time: '',
+      duration: 0,
+      status: 'unknown',
+      bookmarkCount: 0,
+      clipCount,
+      hasFullMatch,
+      parseError: '缺少 match.json'
+    }
+  }
+
+  const { data, error } = parseMatchJson(matchJsonPath)
+  if (!data) {
+    return {
+      id,
+      dir,
+      map: resolveMatchDisplayMap(id),
+      start_time: '',
+      duration: 0,
+      status: 'unknown',
+      bookmarkCount: 0,
+      clipCount,
+      hasFullMatch,
+      parseError: error
+    }
+  }
+
+  return {
+    id: data.id ?? id,
+    dir,
+    map: resolveMatchDisplayMap(data.id ?? id, data.map, data.source),
+    start_time: data.start_time ?? '',
+    duration: data.duration ?? 0,
+    status: data.status ?? 'unknown',
+    source: data.source,
+    ended_reason: data.ended_reason,
+    capture_method: data.capture_method,
+    encoder: data.encoder,
+    bookmarkCount: data.bookmarks?.length ?? 0,
+    clipCount,
+    hasFullMatch
   }
 }
 
 export class ContentService {
-  listMatches(limit = 50): ContentMatchSummary[] {
-    const matchesDir = paths.matchesDir
-    if (!fs.existsSync(matchesDir)) return []
+  /** 轻量指纹：目录 id + clip 数 + 是否有整局（用于文件监视，不读整表 JSON） */
+  listMatchesFingerprint(): string {
+    const dirs = listSortedMatchDirs()
+    return JSON.stringify(
+      dirs.map((d) => ({
+        id: d.id,
+        clipCount: countClipsInMatchDir(d.dir),
+        hasFullMatch: fs.existsSync(path.join(d.dir, 'full_match.mp4'))
+      }))
+    )
+  }
 
-    const entries = fs.readdirSync(matchesDir, { withFileTypes: true })
-    const summaries: Array<ContentMatchSummary & { _sort: number }> = []
+  listMatches(offset = 0, limit = DEFAULT_PAGE_SIZE): ContentListMatchesResult {
+    const dirs = listSortedMatchDirs()
+    const total = dirs.length
+    const slice = dirs.slice(offset, offset + limit)
+    const items = slice.map((d) => summarizeMatch(d))
 
-    for (const ent of entries) {
-      if (!ent.isDirectory()) continue
-      const dir = path.join(matchesDir, ent.name)
-      const matchJsonPath = path.join(dir, 'match.json')
-      const fullMatchPath = path.join(dir, 'full_match.mp4')
-
-      if (!fs.existsSync(matchJsonPath)) {
-        summaries.push({
-          id: ent.name,
-          dir,
-          map: resolveMatchDisplayMap(ent.name),
-          start_time: '',
-          duration: 0,
-          status: 'unknown',
-          bookmarkCount: 0,
-          clipCount: 0,
-          hasFullMatch: fs.existsSync(fullMatchPath),
-          parseError: '缺少 match.json',
-          _sort: dirSortKey(dir)
-        })
-        continue
-      }
-
-      const { data, error } = parseMatchJson(matchJsonPath)
-      if (!data) {
-        summaries.push({
-          id: ent.name,
-          dir,
-          map: resolveMatchDisplayMap(ent.name, undefined, undefined),
-          start_time: '',
-          duration: 0,
-          status: 'unknown',
-          bookmarkCount: 0,
-          clipCount: 0,
-          hasFullMatch: fs.existsSync(fullMatchPath),
-          parseError: error,
-          _sort: dirSortKey(dir)
-        })
-        continue
-      }
-
-      summaries.push({
-        id: data.id ?? ent.name,
-        dir,
-        map: resolveMatchDisplayMap(data.id ?? ent.name, data.map, data.source),
-        start_time: data.start_time ?? '',
-        duration: data.duration ?? 0,
-        status: data.status ?? 'unknown',
-        source: data.source,
-        ended_reason: data.ended_reason,
-        capture_method: data.capture_method,
-        encoder: data.encoder,
-        bookmarkCount: data.bookmarks?.length ?? 0,
-        clipCount: data.clips?.length ?? 0,
-        hasFullMatch: fs.existsSync(fullMatchPath),
-        _sort: dirSortKey(dir, data)
-      })
+    return {
+      items,
+      total,
+      offset,
+      limit,
+      hasMore: offset + items.length < total
     }
-
-    summaries.sort((a, b) => b._sort - a._sort)
-    return summaries.slice(0, limit).map(({ _sort: _, ...rest }) => rest)
   }
 
   getMatch(matchId: string): ContentMatchDetail | null {
     const dir = path.join(paths.matchesDir, matchId)
-    const matchJsonPath = path.join(dir, 'match.json')
-    if (!fs.existsSync(matchJsonPath)) {
-      log('Content getMatch: no match.json', matchId)
+    if (!fs.existsSync(dir)) {
+      log('Content getMatch: dir missing', matchId)
       return null
     }
 
-    const { data, error } = parseMatchJson(matchJsonPath)
+    const matchJsonPath = path.join(dir, 'match.json')
     const fullMatchPath = path.join(dir, 'full_match.mp4')
+    const clips = scanClipsInMatchDir(dir)
+    const clipCount = clips.length
+    const hasFullMatch = fs.existsSync(fullMatchPath)
+
+    if (!fs.existsSync(matchJsonPath)) {
+      return {
+        id: matchId,
+        dir,
+        map: resolveMatchDisplayMap(matchId),
+        start_time: '',
+        duration: 0,
+        status: 'unknown',
+        bookmarkCount: 0,
+        clipCount,
+        hasFullMatch,
+        parseError: '缺少 match.json',
+        clips,
+        bookmarks: [],
+        match_json_path: matchJsonPath
+      }
+    }
+
+    const { data, error } = parseMatchJson(matchJsonPath)
 
     if (!data) {
       return {
@@ -118,10 +175,10 @@ export class ContentService {
         duration: 0,
         status: 'unknown',
         bookmarkCount: 0,
-        clipCount: 0,
-        hasFullMatch: fs.existsSync(fullMatchPath),
+        clipCount,
+        hasFullMatch,
         parseError: error,
-        clips: [],
+        clips,
         bookmarks: [],
         match_json_path: matchJsonPath
       }
@@ -140,11 +197,11 @@ export class ContentService {
       capture_method: data.capture_method,
       encoder: data.encoder,
       bookmarkCount: data.bookmarks?.length ?? 0,
-      clipCount: data.clips?.length ?? 0,
-      hasFullMatch: fs.existsSync(fullMatchPath),
-      clips: data.clips ?? [],
+      clipCount,
+      hasFullMatch,
+      clips,
       bookmarks: data.bookmarks ?? [],
-      full_match_path: fs.existsSync(fullMatchPath) ? fullMatchPath : undefined,
+      full_match_path: hasFullMatch ? fullMatchPath : undefined,
       match_json_path: matchJsonPath
     }
   }

@@ -3,10 +3,16 @@ import path from 'path'
 import type { Cs2IntegrationStatus, GsiServerState } from '../../shared/recording-types'
 import type { GsiPayload } from '../../shared/gsi-types'
 import { log, logError } from '../shared/logger'
-import { loadSettings, saveSettings } from './settings_service'
+import { loadSettings, saveSettings, type RecordingMode } from './settings_service'
 import type { RecorderService } from './recorder_service'
 import { GsiHttpServer } from './gsi/gsi_http_server'
 import { buildGsiCfgContent, getCs2GsiCfgPath } from './gsi/cs2_gsi_config'
+import {
+  CS2_REQUIRED_LAUNCH_OPTION,
+  inspectCs2LaunchOptions,
+  type Cs2LaunchOptionInspectResult,
+  type Cs2LaunchOptionStatus
+} from './gsi/cs2_launch_options'
 
 export class GameIntegrationService {
   private readonly gsiServer: GsiHttpServer
@@ -22,6 +28,9 @@ export class GameIntegrationService {
   private lastMapName: string | undefined
   private lastKills: number | undefined
   private lastDeaths: number | undefined
+  private launchOptionStatus: Cs2LaunchOptionStatus = 'unknown'
+  private launchOptions: string | undefined
+  private launchOptionMessage: string | undefined
   private statusListener: ((status: Cs2IntegrationStatus) => void) | undefined
   private started = false
 
@@ -53,6 +62,7 @@ export class GameIntegrationService {
   getStatus(): Cs2IntegrationStatus {
     const recorderStatus = this.recorder.getStatus()
     return {
+      recordingMode: loadSettings().recordingMode as RecordingMode,
       gsiServerState: this.gsiServerState,
       gsiPort: this.getGsiPort(),
       gsiListenError: this.gsiListenError,
@@ -60,6 +70,10 @@ export class GameIntegrationService {
       cfgPath: this.cfgPath,
       cfgWritten: this.cfgWritten,
       cfgNeedsCs2Restart: this.cfgNeedsCs2Restart,
+      launchOptionStatus: this.launchOptionStatus,
+      launchOptions: this.launchOptions,
+      launchOptionMessage: this.launchOptionMessage,
+      requiredLaunchOption: CS2_REQUIRED_LAUNCH_OPTION,
       lastPayloadAt: this.lastPayloadAt,
       lastMapPhase: this.lastMapPhase,
       lastMapName: this.lastMapName,
@@ -78,6 +92,22 @@ export class GameIntegrationService {
 
   private notifyStatus(): void {
     this.statusListener?.(this.getStatus())
+  }
+
+  /** 供 RecorderService 等在非 GSI 路径下刷新 UI */
+  broadcastStatus(): void {
+    this.notifyStatus()
+  }
+
+  refreshLaunchOptions(): void {
+    this.applyLaunchOptionInspect(inspectCs2LaunchOptions())
+  }
+
+  private applyLaunchOptionInspect(result: Cs2LaunchOptionInspectResult): void {
+    this.launchOptionStatus = result.status
+    this.launchOptions = result.launchOptions
+    this.launchOptionMessage = result.message
+    this.notifyStatus()
   }
 
   private trackPayload(payload: GsiPayload): void {
@@ -113,6 +143,7 @@ export class GameIntegrationService {
       await this.ensureCs2GsiConfig(settings.gsiPort)
     }
 
+    this.refreshLaunchOptions()
     this.notifyStatus()
   }
 

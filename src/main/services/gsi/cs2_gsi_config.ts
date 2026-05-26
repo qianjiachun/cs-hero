@@ -86,8 +86,20 @@ export function getCs2GsiCfgPath(): string | null {
   return path.join(cfgDir, CS2_GSI_CFG_FILENAME)
 }
 
+/** 用于对局目录名前缀，保留 de_inferno 等完整地图名 */
 export function sanitizeMapNameForMatchId(mapName: string): string {
-  const base = mapName.replace(/^de_/i, '').trim()
-  const safe = base.replace(/[^a-zA-Z0-9_-]/g, '_').toLowerCase()
+  const trimmed = mapName.trim().toLowerCase()
+  if (!trimmed) return 'unknown'
+
+  let safe = trimmed.replace(/[^a-z0-9_-]/g, '_')
+  // GSI 偶发只给 inferno，补全常见竞技图 de_ 前缀
+  if (
+    !safe.startsWith('de_') &&
+    !safe.startsWith('cs_') &&
+    !safe.startsWith('ar_') &&
+    safe !== 'unknown'
+  ) {
+    safe = `de_${safe}`
+  }
   return safe || 'unknown'
 }

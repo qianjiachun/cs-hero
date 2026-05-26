@@ -2,8 +2,19 @@ import fs from 'fs'
 import path from 'path'
 import { createRequire } from 'module'
 import { randomUUID } from 'crypto'
-import type { ObsDisplayConfig, ObsInitPayload, ObsPathsConfig } from './obs_ipc'
+import type {
+  ObsDisplayConfig,
+  ObsInitPayload,
+  ObsPathsConfig,
+  ObsRecordingConfig,
+  ObsRuntimeInfoPayload
+} from './obs_ipc'
 import { getCs2WindowFallbacks, resolveCs2Window, type Cs2WindowInfo } from './cs2_window'
+import { pickRecordingEncoder } from '../services/encoder_service'
+import {
+  encoderCapabilityWarning,
+  recordingBitrateKbps
+} from '../shared/recording_size_planner'
 
 const nodeRequire = createRequire(import.meta.url)
 
@@ -22,9 +33,19 @@ export class ObsEngine {
   private osn: Osn | null = null
   private initialized = false
   private scene: Osn | null = null
+  private desktopAudio: Osn | null = null
   private video: Osn | null = null
+  /** OBS 输出通道：1=画面，2+=音频（与 Streamlabs OSN 约定一致） */
+  private static readonly VIDEO_OUTPUT_CHANNEL = 1
+  private static readonly DESKTOP_AUDIO_OUTPUT_CHANNEL = 2
   private paths: ObsPathsConfig | null = null
   private display: ObsDisplayConfig | null = null
+  private recording: ObsRecordingConfig | null = null
+  private selectedEncoder = 'obs_x264'
+  private encoderDisplay = 'x264'
+  private videoBitrateKbps = 0
+  private encoderWarning: string | undefined
+  private availableEncoders: string[] = []
   private signalWaiters: Array<(info: Osn) => void> = []
   private signalBuffer: Osn[] = []
 
@@ -54,6 +75,7 @@ export class ObsEngine {
 
     this.paths = payload.paths
     this.display = payload.display
+    this.recording = payload.recording
 
     const osn = this.loadOsn()
     const { osnModuleDir, paths: p, osnVersion } = payload
@@ -87,20 +109,43 @@ export class ObsEngine {
     this.initVideo(osn)
     this.configureOutput(osn)
     this.scene = this.setupScene(osn)
-    osn.Global.setOutputSource(0, this.scene)
+    this.setupAudio(osn)
+    osn.Global.setOutputSource(ObsEngine.VIDEO_OUTPUT_CHANNEL, this.scene)
 
     this.initialized = true
     this.log('OBS initialized')
   }
 
+  getRuntimeInfo(): ObsRuntimeInfoPayload {
+    const d = this.display
+    const quality = this.recording?.recordingQuality ?? '1080p'
+    const fps = this.recording?.recordingFps ?? 60
+    return {
+      selectedEncoder: this.selectedEncoder,
+      encoderDisplayName: this.encoderDisplay,
+      availableEncoders: [...this.availableEncoders],
+      baseWidth: d?.baseWidth ?? 0,
+      baseHeight: d?.baseHeight ?? 0,
+      outputWidth: d?.outputWidth ?? 0,
+      outputHeight: d?.outputHeight ?? 0,
+      recordingFps: fps,
+      recordingQuality: quality,
+      videoBitrateKbps: this.videoBitrateKbps || recordingBitrateKbps(quality, fps),
+      encoderWarning: this.encoderWarning,
+      captureModeLabel: '游戏采集（自动）· 回退显示器 · WGC/DXGI 自动',
+      recordingDisplayLabel: d?.displayLabel ?? '主显示器'
+    }
+  }
+
   private initVideo(osn: Osn): void {
     const d = this.display!
+    const fps = this.recording?.recordingFps ?? 60
     this.video = osn.VideoFactory.create()
     this.video.video = {
-      fpsNum: 60,
+      fpsNum: fps,
       fpsDen: 1,
-      baseWidth: d.outputWidth,
-      baseHeight: d.outputHeight,
+      baseWidth: d.baseWidth,
+      baseHeight: d.baseHeight,
       outputWidth: d.outputWidth,
       outputHeight: d.outputHeight,
       outputFormat: osn.EVideoFormat?.NV12 ?? 0,
@@ -109,24 +154,138 @@ export class ObsEngine {
       scaleType: osn.EScaleType?.Bilinear ?? 3,
       fpsType: osn.EFPSType?.Common ?? 0
     }
-    this.log('OBS video', JSON.stringify({ w: d.outputWidth, h: d.outputHeight }))
+    this.log(
+      'OBS video',
+      JSON.stringify({
+        base: `${d.baseWidth}x${d.baseHeight}`,
+        output: `${d.outputWidth}x${d.outputHeight}`,
+        fps
+      })
+    )
   }
 
   private configureOutput(osn: Osn): void {
     const p = this.paths!
+    const fps = this.recording?.recordingFps ?? 60
+    const quality = this.recording?.recordingQuality ?? '1080p'
     this.setSetting(osn, 'Output', 'Mode', 'Advanced')
     const encoders = this.getAvailableValues(osn, 'Output', 'Recording', 'RecEncoder')
-    const preferred = ['obs_x264', 'x264', 'jim_nvenc', 'ffmpeg_nvenc']
-    const encoder =
-      preferred.find((e) => encoders.includes(e)) ?? encoders[encoders.length - 1] ?? 'obs_x264'
+    this.availableEncoders = encoders
+    const picked = pickRecordingEncoder(encoders)
+    this.selectedEncoder = picked.selected
+    this.encoderDisplay = picked.displayName
+    this.videoBitrateKbps = recordingBitrateKbps(quality, fps)
+    this.encoderWarning = encoderCapabilityWarning(picked.selected, quality, fps)
 
-    this.setSetting(osn, 'Output', 'RecEncoder', encoder)
+    this.setSetting(osn, 'Output', 'RecEncoder', picked.selected)
     this.setSetting(osn, 'Output', 'RecFilePath', p.tempDir)
     this.setSetting(osn, 'Output', 'RecFormat', 'mkv')
-    this.setSetting(osn, 'Output', 'VBitrate', 10000)
-    this.setSetting(osn, 'Video', 'FPSCommon', 60)
+    this.setSetting(osn, 'Output', 'VBitrate', this.videoBitrateKbps)
+    this.applyRecordingFps(osn, fps)
+    this.applyEncoderBitrateHints(osn, picked.selected, this.videoBitrateKbps)
     this.trySetVideoAdapter(osn, 0)
-    this.log('OBS output configured', JSON.stringify({ encoder, recDir: p.tempDir }))
+    this.log(
+      'OBS output configured',
+      JSON.stringify({
+        encoder: picked.selected,
+        display: picked.displayName,
+        available: encoders,
+        recDir: p.tempDir,
+        fps,
+        quality,
+        videoBitrateKbps: this.videoBitrateKbps,
+        encoderWarning: this.encoderWarning
+      })
+    )
+  }
+
+  private applyRecordingFps(osn: Osn, fps: number): void {
+    const commonFps = [30, 60, 120]
+    if (commonFps.includes(fps)) {
+      this.setSetting(osn, 'Video', 'FPSCommon', fps)
+      return
+    }
+    this.trySetSetting(osn, 'Video', 'FPSInt', fps)
+    this.trySetSetting(osn, 'Video', 'FPSNum', fps)
+    this.trySetSetting(osn, 'Video', 'FPSDen', 1)
+    this.setSetting(osn, 'Video', 'FPSCommon', fps)
+  }
+
+  private applyEncoderBitrateHints(osn: Osn, encoderId: string, kbps: number): void {
+    const lower = encoderId.toLowerCase()
+    if (lower.includes('nvenc') || lower.includes('amf') || lower.includes('qsv')) {
+      this.trySetSetting(osn, 'Output', 'RecQuality', 'HQ')
+      this.trySetSetting(osn, 'Output', 'RecRB', 0)
+    }
+    if (lower.includes('x264')) {
+      this.trySetSetting(osn, 'Output', 'x264UseAdvanced', false)
+    }
+    this.trySetSetting(osn, 'Output', 'RecRB', kbps)
+    this.setSetting(osn, 'Output', 'VBitrate', kbps)
+  }
+
+  private resolveDesktopAudioDeviceId(osn: Osn): string {
+    try {
+      const probe = osn.InputFactory.create('wasapi_output_capture', 'desktop-audio-probe', {
+        device_id: 'does_not_exist'
+      })
+      const items = probe.properties?.get?.('device_id')?.details?.items ?? []
+      if (typeof probe.release === 'function') {
+        probe.release()
+      }
+
+      const preferred = items.find((item: Osn) => {
+        const name = String(item.name ?? '').toLowerCase()
+        const value = String(item.value ?? '')
+        return (
+          value &&
+          value !== 'does_not_exist' &&
+          (value.toLowerCase() === 'default' || name.includes('default'))
+        )
+      })
+      if (preferred?.value) return String(preferred.value)
+
+      const first = items.find((item: Osn) => {
+        const value = String(item.value ?? '')
+        return value && value !== 'does_not_exist'
+      })
+      if (first?.value) return String(first.value)
+    } catch (err) {
+      this.log('Desktop audio device probe failed', String(err))
+    }
+    return 'default'
+  }
+
+  /** 桌面音频（游戏/系统声音）→ 录制 Track 1 */
+  private setupAudio(osn: Osn): void {
+    this.setSetting(osn, 'Output', 'Track1Name', 'Desktop Audio')
+
+    const deviceId = this.resolveDesktopAudioDeviceId(osn)
+    try {
+      this.desktopAudio = osn.InputFactory.create('wasapi_output_capture', 'desktop-audio', {
+        device_id: deviceId
+      })
+    } catch (err) {
+      this.logError('wasapi_output_capture create failed', String(err))
+      return
+    }
+
+    this.desktopAudio.audioMixers = 1
+    osn.Global.setOutputSource(ObsEngine.DESKTOP_AUDIO_OUTPUT_CHANNEL, this.desktopAudio)
+    this.setSetting(osn, 'Output', 'RecTracks', 1)
+
+    try {
+      const audioEncoders = this.getAvailableValues(osn, 'Output', 'Recording', 'RecAudioEncoder')
+      if (audioEncoders.length > 0) {
+        const aac =
+          audioEncoders.find((e) => e.toLowerCase().includes('aac')) ?? audioEncoders[0]
+        this.setSetting(osn, 'Output', 'RecAudioEncoder', aac)
+      }
+    } catch {
+      // 部分 OSN 构建无独立 RecAudioEncoder 项
+    }
+
+    this.log('OBS audio configured', JSON.stringify({ deviceId }))
   }
 
   private setupScene(osn: Osn): Osn {
@@ -135,21 +294,18 @@ export class ObsEngine {
 
   private setupMonitorScene(osn: Osn): Osn {
     const d = this.display!
-    const physicalWidth = Math.round(d.logicalWidth * d.scaleFactor)
-    const physicalHeight = Math.round(d.logicalHeight * d.scaleFactor)
 
     const videoSource = osn.InputFactory.create('monitor_capture', 'desktop-video')
     const settings = videoSource.settings
-    settings.width = physicalWidth
-    settings.height = physicalHeight
-    settings.monitor = 0
+    settings.width = d.physicalWidth
+    settings.height = d.physicalHeight
+    settings.monitor = this.display?.monitorIndex ?? 0
     videoSource.update(settings)
     videoSource.save()
 
     const scene = osn.SceneFactory.create('cs-hero-desktop')
     const item = scene.add(videoSource)
-    const scale = physicalWidth / d.outputWidth
-    item.scale = { x: 1 / scale, y: 1 / scale }
+    this.applyFullFrameSceneItem(item, d.physicalWidth, d.physicalHeight)
 
     return scene
   }
@@ -158,6 +314,19 @@ export class ObsEngine {
   private static readonly MIN_CAPTURE_WIDTH = 320
   private static readonly MIN_CAPTURE_HEIGHT = 240
 
+  /**
+   * OBS Game/Window 采集：Capture Method 全自动（优先 WGC，其次 DXGI，由 OBS「自动」模式处理）
+   * 常见映射：0=自动, 1=DXGI, 2=WGC
+   */
+  private applyAutoHookCaptureMethod(settings: Osn): void {
+    if ('capture_method' in settings) {
+      settings.capture_method = 0
+    }
+    if ('method' in settings) {
+      settings.method = 0
+    }
+  }
+
   private applyGameCaptureSettings(
     settings: Osn,
     captureMode: 'window' | 'any_fullscreen',
@@ -165,6 +334,7 @@ export class ObsEngine {
   ): void {
     settings.capture_mode = captureMode
     settings.capture_cursor = true
+    this.applyAutoHookCaptureMethod(settings)
     if (window !== undefined) {
       settings.window = window
     } else if ('window' in settings) {
@@ -191,27 +361,75 @@ export class ObsEngine {
     }
   }
 
-  private getCanvasSize(): { width: number; height: number } {
+  private getBaseCanvasSize(): { width: number; height: number } {
     const d = this.display!
-    return { width: d.outputWidth, height: d.outputHeight }
+    return { width: d.baseWidth, height: d.baseHeight }
   }
 
-  /** 将场景项拉伸铺满画布（避免只录到左上角一块） */
-  private fitSceneItemToCanvas(item: Osn, sourceWidth: number, sourceHeight: number): void {
-    const { width: cw, height: ch } = this.getCanvasSize()
-    const sw = sourceWidth > 0 ? sourceWidth : cw
-    const sh = sourceHeight > 0 ? sourceHeight : ch
+  /**
+   * 将采集源等比居中放入 base 画布（letterbox/pillarbox）。
+   * source 未知时先占满，warmup 后必须用真实尺寸再次调用。
+   */
+  private applyFullFrameSceneItem(item: Osn, sourceWidth = 0, sourceHeight = 0): void {
+    const { width: bw, height: bh } = this.getBaseCanvasSize()
+    if (sourceWidth <= 0 || sourceHeight <= 0) {
+      item.scale = { x: 1, y: 1 }
+      if ('position' in item) {
+        item.position = { x: 0, y: 0 }
+      }
+      this.log('OBS scene item pending fit', `canvas=${bw}x${bh}`)
+      return
+    }
 
-    const scaleX = cw / sw
-    const scaleY = ch / sh
-    item.scale = { x: scaleX, y: scaleY }
+    const sw = sourceWidth
+    const sh = sourceHeight
+
+    if (Math.abs(sw - bw) <= 4 && Math.abs(sh - bh) <= 4) {
+      item.scale = { x: 1, y: 1 }
+      if ('position' in item) {
+        item.position = { x: 0, y: 0 }
+      }
+      this.log('OBS scene item full frame', `${bw}x${bh}`)
+      return
+    }
+
+    const uniform = Math.min(bw / sw, bh / sh)
+    const displayW = sw * uniform
+    const displayH = sh * uniform
+    const posX = (bw - displayW) / 2
+    const posY = (bh - displayH) / 2
+
+    item.scale = { x: uniform, y: uniform }
     if ('position' in item) {
-      item.position = { x: 0, y: 0 }
+      item.position = { x: posX, y: posY }
+    }
+    if (typeof item.setTransform === 'function') {
+      try {
+        item.setTransform({ positionX: posX, positionY: posY, scaleX: uniform, scaleY: uniform })
+      } catch {
+        // ignore
+      }
     }
     this.log(
-      'OBS fit scene item',
-      JSON.stringify({ canvas: `${cw}x${ch}`, source: `${sw}x${sh}`, scale: { x: scaleX, y: scaleY } })
+      'OBS scene item letterbox',
+      JSON.stringify({
+        base: `${bw}x${bh}`,
+        source: `${sw}x${sh}`,
+        scale: uniform,
+        position: { x: posX, y: posY }
+      })
     )
+  }
+
+  private refitSceneItemFromCapture(item: Osn, cs2Info: Cs2WindowInfo | null): void {
+    const dims = this.readSourceDimensions(item)
+    const { width: bw, height: bh } = this.getBaseCanvasSize()
+    const sw = dims.width > 0 ? dims.width : cs2Info?.width ?? 0
+    const sh = dims.height > 0 ? dims.height : cs2Info?.height ?? 0
+    this.applyFullFrameSceneItem(item, sw, sh)
+    if (sw <= 0 || sh <= 0) {
+      this.log('OBS refit deferred: unknown source size', `canvas=${bw}x${bh}`)
+    }
   }
 
   private readSourceDimensions(item: Osn): { width: number; height: number } {
@@ -272,9 +490,7 @@ export class ObsEngine {
 
     const scene = osn.SceneFactory.create(`cs-hero-${id}`)
     const item = scene.add(videoSource)
-    const guessW = cs2Info?.width || this.getCanvasSize().width
-    const guessH = cs2Info?.height || this.getCanvasSize().height
-    this.fitSceneItemToCanvas(item, guessW, guessH)
+    this.applyFullFrameSceneItem(item, 0, 0)
     return scene
   }
 
@@ -293,11 +509,7 @@ export class ObsEngine {
 
     this.refreshGameCaptureSource(item)
 
-    const dims = this.readSourceDimensions(item)
-    const nativeW = dims.width > 0 ? dims.width : cs2Info?.width || this.getCanvasSize().width
-    const nativeH = dims.height > 0 ? dims.height : cs2Info?.height || this.getCanvasSize().height
-    this.fitSceneItemToCanvas(item, nativeW, nativeH)
-
+    this.refitSceneItemFromCapture(item, cs2Info)
     return item
   }
 
@@ -311,28 +523,26 @@ export class ObsEngine {
     const item = await this.warmupAndFitGameCapture(osn, scene, cs2Info)
 
     if (await this.verifyCaptureActive(item)) {
+      this.refitSceneItemFromCapture(item, cs2Info)
       return scene
     }
 
     await sleep(1500)
     this.refreshGameCaptureSource(item)
-    const dims = this.readSourceDimensions(item)
-    this.fitSceneItemToCanvas(
-      item,
-      dims.width > 0 ? dims.width : cs2Info?.width || this.getCanvasSize().width,
-      dims.height > 0 ? dims.height : cs2Info?.height || this.getCanvasSize().height
-    )
+    this.refitSceneItemFromCapture(item, cs2Info)
 
     if (await this.verifyCaptureActive(item)) {
+      this.refitSceneItemFromCapture(item, cs2Info)
       return scene
     }
 
-    // window 模式必须验证出帧；全屏 hook 在部分 OSN 上不回报尺寸，允许在已解析到 CS2 窗口时放行
+    // window 模式必须验证出帧；全屏 hook 在部分 OSN 上不回报尺寸，用窗口/画布尺寸兜底 fit
     if (
       captureMode === 'any_fullscreen' &&
       cs2Info?.isFullscreenLikely &&
       cs2Info.width >= ObsEngine.MIN_CAPTURE_WIDTH
     ) {
+      this.refitSceneItemFromCapture(item, cs2Info)
       this.log('OBS capture verify relaxed pass (fullscreen)', `${cs2Info.width}x${cs2Info.height}`)
       return scene
     }
@@ -349,17 +559,13 @@ export class ObsEngine {
     const settings = videoSource.settings
     settings.window = window
     settings.capture_cursor = true
-    if ('method' in settings) {
-      settings.method = 2
-    }
+    this.applyAutoHookCaptureMethod(settings)
     videoSource.update(settings)
     videoSource.save()
 
     const scene = osn.SceneFactory.create('cs-hero-cs2-window')
     const item = scene.add(videoSource)
-    const guessW = cs2Info?.width || this.getCanvasSize().width
-    const guessH = cs2Info?.height || this.getCanvasSize().height
-    this.fitSceneItemToCanvas(item, guessW, guessH)
+    this.applyFullFrameSceneItem(item, 0, 0)
     return scene
   }
 
@@ -386,7 +592,7 @@ export class ObsEngine {
 
   private activateScene(osn: Osn, scene: Osn): void {
     this.scene = scene
-    osn.Global.setOutputSource(0, scene)
+    osn.Global.setOutputSource(ObsEngine.VIDEO_OUTPUT_CHANNEL, scene)
   }
 
   /**
@@ -403,30 +609,26 @@ export class ObsEngine {
       JSON.stringify({
         obsWindowId: cs2Info?.obsWindowId,
         size: cs2Info ? `${cs2Info.width}x${cs2Info.height}` : 'unknown',
-        fullscreen: cs2Info?.isFullscreenLikely ?? 'unknown'
+        fullscreen: cs2Info?.isFullscreenLikely ?? 'unknown',
+        monitor: this.display?.monitorIndex ?? 0
       })
     )
 
     const strategies = this.buildCaptureStrategies(cs2Info, windowIds)
 
-    for (const strategy of strategies) {
+    for (const cap of strategies) {
       try {
-        await this.tryGameCaptureStrategy(
-          osn,
-          strategy.mode,
-          strategy.window,
-          cs2Info
-        )
+        await this.tryGameCaptureStrategy(osn, cap.mode, cap.window, cs2Info)
         const label =
-          strategy.mode === 'any_fullscreen'
+          cap.mode === 'any_fullscreen'
             ? 'game_capture (any_fullscreen)'
-            : `game_capture (window) ${strategy.window}`
+            : `game_capture (window) ${cap.window}`
         this.log('OBS match capture', label)
         return 'game_capture'
       } catch (err) {
         this.log(
           'OBS game_capture try failed',
-          `${strategy.mode}${strategy.window ? ` ${strategy.window}` : ''}: ${String(err)}`
+          `${cap.mode}${cap.window ? ` ${cap.window}` : ''}: ${String(err)}`
         )
       }
     }
@@ -438,6 +640,7 @@ export class ObsEngine {
         await sleep(1500)
         const item = scene.getItems()[0]
         if (item && (await this.verifyCaptureActive(item))) {
+          this.refitSceneItemFromCapture(item, cs2Info)
           this.log('OBS match capture fallback', `window_capture ${window}`)
           return 'window_capture_fallback'
         }
@@ -450,6 +653,11 @@ export class ObsEngine {
     this.logError('game_capture failed, fallback to monitor', '')
     const scene = this.setupMonitorScene(osn)
     this.activateScene(osn, scene)
+    await sleep(1500)
+    const monitorItem = scene.getItems()[0]
+    if (monitorItem) {
+      this.refitSceneItemFromCapture(monitorItem, cs2Info)
+    }
     return 'monitor_capture_fallback'
   }
 
@@ -489,6 +697,9 @@ export class ObsEngine {
   shutdown(): void {
     if (!this.initialized || !this.osn) return
     try {
+      if (this.desktopAudio && typeof this.desktopAudio.release === 'function') {
+        this.desktopAudio.release()
+      }
       this.osn.NodeObs.OBS_service_removeCallback()
       this.osn.NodeObs.IPC.disconnect()
     } catch (err) {
@@ -496,6 +707,7 @@ export class ObsEngine {
     }
     this.initialized = false
     this.scene = null
+    this.desktopAudio = null
     this.video = null
     this.log('OBS shutdown')
   }
@@ -623,13 +835,17 @@ export class ObsEngine {
   }
 
   /** 双显卡：尽量使用 Adapter 0（通常为独显） */
-  private trySetVideoAdapter(osn: Osn, index: number): void {
+  private trySetSetting(osn: Osn, category: string, parameter: string, value: unknown): void {
     try {
-      this.setSetting(osn, 'Video', 'Adapter', index)
-      this.log('OBS video adapter', String(index))
+      this.setSetting(osn, category, parameter, value)
     } catch {
-      // 部分 OSN 构建无 Adapter 项
+      // 部分 OSN 构建无该项
     }
+  }
+
+  private trySetVideoAdapter(osn: Osn, index: number): void {
+    this.trySetSetting(osn, 'Video', 'Adapter', index)
+    this.log('OBS video adapter', String(index))
   }
 
   private getAvailableValues(

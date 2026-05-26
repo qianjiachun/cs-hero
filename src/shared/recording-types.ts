@@ -23,11 +23,14 @@ export interface RecordingPocStatus {
 /** 第二条竖切：Mock 对局状态 */
 export type MockMatchPhase =
   | 'idle'
+  | 'waiting_cs2'
   | 'recording'
   | 'finalizing'
   | 'clipping'
   | 'completed'
   | 'failed'
+
+export type RecordingMode = 'auto' | 'manual'
 
 export type BookmarkType = 'kill' | 'death'
 
@@ -54,18 +57,67 @@ export interface MatchJson {
   capture_method: string
   encoder: string
   status: 'complete' | 'incomplete'
-  source?: 'mock' | 'cs2_gsi'
+  source?: 'mock' | 'cs2_gsi' | 'manual' | 'recovery'
   source_mkv?: string
+  recovered_from?: string
+  full_match_retained?: boolean
   bookmarks: Array<{ type: BookmarkType; time: number }>
   clips: ClipInfo[]
   clip_errors?: string[]
   ended_reason?: string
 }
 
+/** 第四条竖切：最近对局列表项 */
+export interface ContentMatchSummary {
+  id: string
+  dir: string
+  map: string
+  start_time: string
+  duration: number
+  status: 'complete' | 'incomplete' | 'unknown'
+  source?: string
+  ended_reason?: string
+  capture_method?: string
+  encoder?: string
+  bookmarkCount: number
+  clipCount: number
+  hasFullMatch: boolean
+  parseError?: string
+}
+
+export interface ContentMatchDetail extends ContentMatchSummary {
+  end_time?: string
+  clips: ClipInfo[]
+  bookmarks: Array<{ type: BookmarkType; time: number }>
+  full_match_path?: string
+  match_json_path: string
+}
+
+/** OBS 运行时信息（设置页展示） */
+export interface ObsRuntimeInfo {
+  selectedEncoder: string
+  availableEncoders: string[]
+  baseWidth: number
+  baseHeight: number
+  outputWidth: number
+  outputHeight: number
+  recordingFps: number
+  recordingQuality: '720p' | '1080p' | '1440p'
+  videoBitrateKbps: number
+  encoderWarning?: string
+  /** 用户可读的自动采集说明 */
+  captureModeLabel: string
+  recordingDisplayLabel: string
+}
+
 /** 第三条竖切：真实 CS2 GSI 集成状态 */
 export type GsiServerState = 'idle' | 'listening' | 'port_conflict' | 'failed'
 
+/** CS2 启动项 -allow_third_party_software 检测 */
+export type Cs2LaunchOptionStatus = 'ok' | 'missing' | 'unknown'
+
 export interface Cs2IntegrationStatus {
+  recordingMode: RecordingMode
   gsiServerState: GsiServerState
   gsiPort: number
   gsiListenError?: string
@@ -73,6 +125,10 @@ export interface Cs2IntegrationStatus {
   cfgPath?: string
   cfgWritten: boolean
   cfgNeedsCs2Restart: boolean
+  launchOptionStatus: Cs2LaunchOptionStatus
+  launchOptions?: string
+  launchOptionMessage?: string
+  requiredLaunchOption?: string
   lastPayloadAt?: string
   lastMapPhase?: string
   lastMapName?: string

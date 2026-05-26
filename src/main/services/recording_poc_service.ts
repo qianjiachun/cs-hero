@@ -138,6 +138,7 @@ export class RecordingPocService {
       }
 
       const endedAt = new Date()
+      const runtime = await this.obs.getRuntimeInfo()
       const matchJson = {
         id: matchId,
         map: 'poc',
@@ -145,7 +146,7 @@ export class RecordingPocService {
         end_time: endedAt.toISOString(),
         duration: Math.round((endedAt.getTime() - startedAt.getTime()) / 1000),
         capture_method: 'monitor_capture',
-        encoder: 'auto',
+        encoder: runtime?.selectedEncoder ?? 'unknown',
         status: remuxOk ? 'complete' : 'incomplete',
         source_mkv: mkvPath,
         bookmarks: [],

@@ -60,6 +60,11 @@ ipc.onMessage(async (raw) => {
         reply({ id, ok: true, result: mkvPath })
         break
       }
+      case 'get-runtime-info': {
+        if (!engine?.isInitialized()) throw new Error('OBS 未初始化')
+        reply({ id, ok: true, result: engine.getRuntimeInfo() })
+        break
+      }
       case 'shutdown': {
         engine?.shutdown()
         engine = null

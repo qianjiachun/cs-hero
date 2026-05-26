@@ -2,8 +2,11 @@ import { fork, type ChildProcess } from 'child_process'
 import { randomUUID } from 'crypto'
 import path from 'path'
 import { fileURLToPath } from 'url'
-import { screen } from 'electron'
 import { paths, checkResources, getProjectRoot } from '../shared/paths'
+import { loadSettings } from '../services/settings_service'
+import { resolveRecordingDisplay } from '../shared/displays'
+import { planRecordingCanvas } from '../shared/recording_size_planner'
+import type { AppSettings } from '../../shared/settings'
 import { getOsnConfigDataPath, getOsnModuleDir, OSN_VERSION } from '../shared/osn_paths'
 import { log, logError } from '../shared/logger'
 import type {
@@ -118,18 +121,22 @@ export class ObsWorkerHost {
   }
 
   private buildInitPayload(): ObsInitPayload {
-    const primary = screen.getPrimaryDisplay()
-    const { width, height } = primary.size
-    const scaleFactor = primary.scaleFactor
-    const outputWidth = 1920
-    const outputHeight = Math.round(outputWidth / (width / height))
+    const settings = loadSettings()
+    const resolved = resolveRecordingDisplay(settings.recordingDisplayId)
+    const canvas = planRecordingCanvas(settings.recordingQuality)
 
     const display: ObsDisplayConfig = {
-      logicalWidth: width,
-      logicalHeight: height,
-      scaleFactor,
-      outputWidth,
-      outputHeight
+      logicalWidth: resolved.logicalWidth,
+      logicalHeight: resolved.logicalHeight,
+      physicalWidth: resolved.physicalWidth,
+      physicalHeight: resolved.physicalHeight,
+      scaleFactor: resolved.scaleFactor,
+      baseWidth: canvas.baseWidth,
+      baseHeight: canvas.baseHeight,
+      outputWidth: canvas.outputWidth,
+      outputHeight: canvas.outputHeight,
+      monitorIndex: resolved.monitorIndex,
+      displayLabel: resolved.display.label
     }
 
     return {
@@ -140,8 +147,31 @@ export class ObsWorkerHost {
         obsConfigPath: getOsnConfigDataPath(),
         recordingTmpMkv: paths.recordingTmpMkv
       },
-      display
+      display,
+      recording: {
+        recordingFps: settings.recordingFps,
+        recordingQuality: settings.recordingQuality
+      }
     }
+  }
+
+  async getRuntimeInfo(): Promise<import('./obs_ipc').ObsRuntimeInfoPayload> {
+    await this.ensureReady()
+    return (await this.request('get-runtime-info', undefined, 10_000)) as import('./obs_ipc').ObsRuntimeInfoPayload
+  }
+
+  /** 设置变更后重新初始化 OBS（录制空闲时调用） */
+  async reinitialize(): Promise<void> {
+    if (this.child?.connected && this.ready) {
+      try {
+        await this.request('shutdown', undefined, 10_000)
+      } catch {
+        // ignore
+      }
+    }
+    this.reset()
+    this.initPromise = null
+    await this.ensureReady()
   }
 
   private attachChildIo(child: ChildProcess): void {

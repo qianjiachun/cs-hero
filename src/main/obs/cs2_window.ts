@@ -61,6 +61,24 @@ function buildObsWindowId(title: string, className: string): string {
   return `${safeTitle}:${className}:cs2.exe`
 }
 
+export function isCs2ProcessRunning(): boolean {
+  if (process.platform !== 'win32') return false
+  try {
+    const out = execSync('tasklist /FI "IMAGENAME eq cs2.exe" /NH', {
+      encoding: 'utf-8',
+      windowsHide: true
+    })
+    return out.toLowerCase().includes('cs2.exe')
+  } catch {
+    return false
+  }
+}
+
+/** 进程在且主窗口可解析时，才适合启动 game_capture */
+export function isCs2CaptureReady(): boolean {
+  return isCs2ProcessRunning() && resolveCs2Window() !== null
+}
+
 /** 通过 Win32 枚举 CS2 主窗口（仅 Windows） */
 export function resolveCs2Window(): Cs2WindowInfo | null {
   if (process.platform !== 'win32') {

@@ -6,5 +6,19 @@ export const IPC = {
   MOCK_MATCH_GET_STATUS: 'mock-match:get-status',
   MOCK_MATCH_STATUS_EVENT: 'mock-match:status-changed',
   CS2_INTEGRATION_GET_STATUS: 'cs2-integration:get-status',
-  CS2_INTEGRATION_STATUS_EVENT: 'cs2-integration:status-changed'
+  CS2_INTEGRATION_STATUS_EVENT: 'cs2-integration:status-changed',
+  CS2_REFRESH_LAUNCH_OPTION: 'cs2:refresh-launch-option',
+  CS2_OPEN_STEAM_GAME: 'cs2:open-steam-game',
+  MANUAL_RECORDING_START: 'manual-recording:start',
+  MANUAL_RECORDING_STOP: 'manual-recording:stop',
+  SETTINGS_GET: 'settings:get',
+  SETTINGS_UPDATE: 'settings:update',
+  SETTINGS_CHANGED_EVENT: 'settings:changed',
+  CONTENT_LIST_MATCHES: 'content:list-matches',
+  CONTENT_GET_MATCH: 'content:get-match',
+  CONTENT_OPEN_PATH: 'content:open-path',
+  CONTENT_MATCHES_CHANGED_EVENT: 'content:matches-changed',
+  OBS_GET_RUNTIME_INFO: 'obs:get-runtime-info',
+  OBS_RUNTIME_EVENT: 'obs:runtime-changed',
+  DISPLAYS_LIST: 'displays:list'
 } as const

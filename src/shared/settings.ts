@@ -1,28 +1,38 @@
+export type RecordingMode = 'auto' | 'manual'
+
 export interface AppSettings {
-  recordingFps: 30 | 60 | 90 | 120 | 144
+  /** auto：GSI 自动开停；manual：用户手动开始/暂停/结束（与 auto 互斥） */
+  recordingMode: RecordingMode
+  recordingFps: 30 | 60 | 90 | 120
   recordingQuality: '720p' | '1080p' | '1440p'
-  captureMethod: 'auto' | 'wgc' | 'dxgi'
+  /** 录制使用的显示器（Electron display.id）；采集源/编码器由程序自动选择 */
+  recordingDisplayId: number
   /** GSI HTTP 监听端口 */
   gsiPort: number
   /** 击杀片段：锚点前秒数 */
   clipSecondsBefore: number
   /** 击杀片段：锚点后秒数 */
   clipSecondsAfter: number
+  /** 对局结束后是否保留 full_match.mp4（false 时 clips 成功后删除整局） */
+  keepFullMatch: boolean
   /**
-   * 对局录制采集策略（写入 dev/settings.json 可改）：
-   * - reliable：显示器采集（独占全屏最稳，推荐）
-   * - auto：先试游戏采集，仅在 hook 确认有效时使用，否则回退显示器
-   * - game：仅游戏/窗口采集（可能黑屏，仅调试用）
+   * @deprecated 仅兼容旧 settings.json；始终按自动采集处理，不在 UI 暴露
    */
-  matchCaptureStrategy: 'reliable' | 'auto' | 'game'
+  captureMethod?: 'auto' | 'wgc' | 'dxgi'
+  matchCaptureStrategy?: 'reliable' | 'auto' | 'game'
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
+  recordingMode: 'auto',
   recordingFps: 60,
   recordingQuality: '1080p',
-  captureMethod: 'auto',
+  recordingDisplayId: 0,
   gsiPort: 1340,
   clipSecondsBefore: 5,
   clipSecondsAfter: 5,
-  matchCaptureStrategy: 'auto'
+  keepFullMatch: true
 }
+
+/** 内部固定：采集与编码器全自动（不对用户暴露） */
+export const AUTO_CAPTURE_METHOD = 'auto' as const
+export const AUTO_MATCH_CAPTURE_STRATEGY = 'auto' as const

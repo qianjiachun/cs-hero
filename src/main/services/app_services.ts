@@ -44,13 +44,23 @@ export async function startAppServices(
     integration.setStatusListener(onCs2StatusChanged)
   }
   await integration.start()
-  getGameDetectionService().start()
+  const recorder = getRecorderService()
+  recorder.setStatusListener(() => integration.broadcastStatus())
+  const detection = getGameDetectionService()
+  detection.setOnCs2Started(() => {
+    integration.refreshLaunchOptions()
+    void recorder.tryActivateManualRecordingIfWaiting()
+  })
+  detection.start()
 }
 
 export async function shutdownAppServices(): Promise<void> {
   getGameDetectionService().stop()
   const recorder = getRecorderService()
-  if (recorder.getState() === 'recording') {
+  const state = recorder.getState()
+  if (state === 'waiting_cs2') {
+    recorder.cancelManualSession()
+  } else if (state === 'recording') {
     try {
       await recorder.finishMatch('app_exit')
     } catch {

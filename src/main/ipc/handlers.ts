@@ -1,19 +1,45 @@
-import { BrowserWindow, ipcMain } from 'electron'
-import type { Cs2IntegrationStatus, MockMatchStatus, RecordingPocStatus } from '../../shared/recording-types'
+import { BrowserWindow, ipcMain, shell } from 'electron'
+import type {
+  AppSettings
+} from '../../shared/settings'
+import type {
+  ContentMatchSummary,
+  Cs2IntegrationStatus,
+  MockMatchStatus,
+  ObsRuntimeInfo,
+  RecordingPocStatus
+} from '../../shared/recording-types'
 import { IPC } from './channels'
 import { RecordingPocService } from '../services/recording_poc_service'
 import { MockMatchService } from '../services/mock_match_service'
-import { loadSettings } from '../services/settings_service'
+import { ContentService } from '../services/content_service'
+import {
+  primeMatchesCache,
+  setOnMatchesChanged,
+  startMatchesFileWatcher,
+  stopMatchesFileWatcher
+} from '../services/content_watch_service'
+import {
+  applySettings,
+  loadSettings,
+  setOnDiskSettingsChanged,
+  startSettingsFileWatcher,
+  stopSettingsFileWatcher
+} from '../services/settings_service'
 import { ensureRuntimeDirs } from '../shared/paths'
+import { listDisplays } from '../shared/displays'
 import { log } from '../shared/logger'
 import {
   getGameIntegrationService,
+  getObsService,
+  getRecorderService,
   startAppServices,
   shutdownAppServices
 } from '../services/app_services'
 
 let pocService: RecordingPocService | null = null
 let mockMatchService: MockMatchService | null = null
+let contentService: ContentService | null = null
 let appServicesStarted = false
 
 function getPocService(): RecordingPocService {
@@ -28,6 +54,13 @@ function getMockMatchService(): MockMatchService {
     mockMatchService = new MockMatchService()
   }
   return mockMatchService
+}
+
+function getContentService(): ContentService {
+  if (!contentService) {
+    contentService = new ContentService()
+  }
+  return contentService
 }
 
 function broadcastRecordingStatus(status: RecordingPocStatus): void {
@@ -48,6 +81,24 @@ function broadcastCs2IntegrationStatus(status: Cs2IntegrationStatus): void {
   }
 }
 
+function broadcastSettings(settings: AppSettings): void {
+  for (const win of BrowserWindow.getAllWindows()) {
+    win.webContents.send(IPC.SETTINGS_CHANGED_EVENT, settings)
+  }
+}
+
+function broadcastObsRuntime(info: ObsRuntimeInfo | null): void {
+  for (const win of BrowserWindow.getAllWindows()) {
+    win.webContents.send(IPC.OBS_RUNTIME_EVENT, info)
+  }
+}
+
+function broadcastMatches(matches: ContentMatchSummary[]): void {
+  for (const win of BrowserWindow.getAllWindows()) {
+    win.webContents.send(IPC.CONTENT_MATCHES_CHANGED_EVENT, matches)
+  }
+}
+
 function assertNotBusy(): void {
   if (getPocService().isRunning()) {
     throw new Error('PoC 录制进行中，请稍后再试')
@@ -55,6 +106,17 @@ function assertNotBusy(): void {
   if (getMockMatchService().isRunning()) {
     throw new Error('Mock 对局进行中，请稍后再试')
   }
+  if (getRecorderService().isBusy()) {
+    throw new Error('对局录制进行中，请稍后再试')
+  }
+}
+
+const OBS_SETTING_KEYS = ['recordingFps', 'recordingQuality', 'recordingDisplayId'] as const
+
+function needsObsReinit(prev: AppSettings, partial: Partial<AppSettings>): boolean {
+  return OBS_SETTING_KEYS.some(
+    (k) => partial[k] !== undefined && partial[k] !== prev[k]
+  )
 }
 
 async function ensureAppServices(): Promise<void> {
@@ -67,6 +129,13 @@ async function ensureAppServices(): Promise<void> {
 export function registerIpcHandlers(): void {
   ensureRuntimeDirs()
   loadSettings()
+  setOnDiskSettingsChanged((settings) => {
+    broadcastSettings(settings)
+  })
+  startSettingsFileWatcher()
+  setOnMatchesChanged((matches) => broadcastMatches(matches))
+  primeMatchesCache(() => getContentService())
+  startMatchesFileWatcher(() => getContentService())
   log('App data root', getPocService().getStatus().appDataRoot)
 
   void ensureAppServices()
@@ -109,6 +178,90 @@ export function registerIpcHandlers(): void {
     await ensureAppServices()
     return getGameIntegrationService().getStatus()
   })
+
+  ipcMain.handle(IPC.CS2_REFRESH_LAUNCH_OPTION, async () => {
+    await ensureAppServices()
+    getGameIntegrationService().refreshLaunchOptions()
+    const status = getGameIntegrationService().getStatus()
+    broadcastCs2IntegrationStatus(status)
+    return status
+  })
+
+  ipcMain.handle(IPC.CS2_OPEN_STEAM_GAME, async () => {
+    await shell.openExternal('steam://open/gamedetails/730')
+    return true
+  })
+
+  ipcMain.handle(IPC.MANUAL_RECORDING_START, async () => {
+    assertNotBusy()
+    await ensureAppServices()
+    await getRecorderService().startManualRecording()
+    const status = getGameIntegrationService().getStatus()
+    broadcastCs2IntegrationStatus(status)
+    return status
+  })
+
+  ipcMain.handle(IPC.MANUAL_RECORDING_STOP, async () => {
+    await ensureAppServices()
+    await getRecorderService().stopManualRecording()
+    const status = getGameIntegrationService().getStatus()
+    broadcastCs2IntegrationStatus(status)
+    return status
+  })
+
+  ipcMain.handle(IPC.SETTINGS_GET, () => loadSettings())
+
+  ipcMain.handle(IPC.SETTINGS_UPDATE, async (_evt, partial: Partial<AppSettings>) => {
+    if (partial.recordingMode !== undefined && getRecorderService().isBusy()) {
+      throw new Error('录制进行中，无法切换自动/手动模式')
+    }
+    const prev = loadSettings()
+    const next = applySettings(partial)
+
+    const reinitObs =
+      needsObsReinit(prev, partial) && getRecorderService().getState() === 'idle'
+
+    if (reinitObs) {
+      void getObsService()
+        .reinitializeFromSettings()
+        .then(async () => {
+          const info = await getObsService().getRuntimeInfo()
+          broadcastObsRuntime(info)
+          getPocService().warmUpObs(broadcastRecordingStatus)
+          getMockMatchService().warmUpObs(broadcastMockMatchStatus)
+        })
+        .catch((err) => log('OBS reinit after settings failed', err))
+    }
+
+    return next
+  })
+
+  ipcMain.handle(IPC.OBS_GET_RUNTIME_INFO, async () => {
+    try {
+      return await getObsService().getRuntimeInfo()
+    } catch {
+      return getObsService().getCachedRuntimeInfo()
+    }
+  })
+
+  ipcMain.handle(IPC.CONTENT_LIST_MATCHES, () => {
+    return getContentService().listMatches()
+  })
+
+  ipcMain.handle(IPC.CONTENT_GET_MATCH, (_evt, matchId: string) => {
+    return getContentService().getMatch(matchId)
+  })
+
+  ipcMain.handle(IPC.CONTENT_OPEN_PATH, async (_evt, targetPath: string) => {
+    if (!targetPath || typeof targetPath !== 'string') {
+      throw new Error('无效路径')
+    }
+    const err = await shell.openPath(targetPath)
+    if (err) throw new Error(err)
+    return true
+  })
+
+  ipcMain.handle(IPC.DISPLAYS_LIST, () => listDisplays())
 }
 
 /** 窗口已显示后再预热 OBS，避免与首屏渲染争抢主线程 */
@@ -117,14 +270,21 @@ export function scheduleObsWarmUp(): void {
     log('Scheduling OBS warm-up')
     getPocService().warmUpObs(broadcastRecordingStatus)
     getMockMatchService().warmUpObs(broadcastMockMatchStatus)
+    void getObsService()
+      .ensureReady()
+      .then(() => getObsService().getRuntimeInfo())
+      .catch((err) => log('OBS warm-up runtime info failed', err))
   })
 }
 
 export async function shutdownServices(): Promise<void> {
+  stopMatchesFileWatcher()
+  stopSettingsFileWatcher()
   await pocService?.shutdown()
   await mockMatchService?.shutdown()
   await shutdownAppServices()
   pocService = null
   mockMatchService = null
+  contentService = null
   appServicesStarted = false
 }

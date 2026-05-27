@@ -17,8 +17,11 @@ function createWindow(): BrowserWindow {
   log('Preload path', preloadPath, 'exists=', fs.existsSync(preloadPath))
 
   const win = new BrowserWindow({
-    width: 720,
-    height: 680,
+    width: 1200,
+    height: 800,
+    minWidth: 800,
+    minHeight: 600,
+    frame: false,
     show: false,
     webPreferences: {
       preload: preloadPath,

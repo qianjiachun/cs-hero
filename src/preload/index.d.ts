@@ -1,5 +1,6 @@
 import type { DisplayInfo } from '../shared/display-types'
 import type { AppSettings } from '../shared/settings'
+import type { StorageInfo } from '../shared/storage-types'
 import type {
   ContentListMatchesOptions,
   ContentListMatchesResult,
@@ -53,6 +54,10 @@ export interface CsHeroApi {
   getMergeCandidates: (matchId: string) => Promise<MergeCandidates>
   createMergedVideo: (request: MergeCreateRequest) => Promise<MergeResult>
   exportMergedVideo: (request: MergeCreateRequest) => Promise<MergeResult>
+  minimizeWindow: () => void
+  maximizeWindow: () => void
+  closeWindow: () => void
+  getStorageInfo: () => Promise<StorageInfo>
 }
 
 declare global {

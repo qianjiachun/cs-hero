@@ -31,5 +31,9 @@ export const IPC = {
   FFMPEG_JOB_STATUS_EVENT: 'ffmpeg:job-status-changed',
   MERGE_GET_CANDIDATES: 'merge:get-candidates',
   MERGE_CREATE: 'merge:create',
-  MERGE_EXPORT: 'merge:export'
+  MERGE_EXPORT: 'merge:export',
+  WINDOW_MINIMIZE: 'window:minimize',
+  WINDOW_MAXIMIZE: 'window:maximize',
+  WINDOW_CLOSE: 'window:close',
+  STORAGE_GET_INFO: 'storage:get-info'
 } as const

@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron'
 import { IPC } from '../shared/ipc-channels'
 import type { DisplayInfo } from '../shared/display-types'
 import type { AppSettings } from '../shared/settings'
+import type { StorageInfo } from '../shared/storage-types'
 import type {
   ContentListMatchesOptions,
   ContentListMatchesResult,
@@ -117,7 +118,11 @@ const api = {
   createMergedVideo: (request: MergeCreateRequest): Promise<MergeResult> =>
     ipcRenderer.invoke(IPC.MERGE_CREATE, request),
   exportMergedVideo: (request: MergeCreateRequest): Promise<MergeResult> =>
-    ipcRenderer.invoke(IPC.MERGE_EXPORT, request)
+    ipcRenderer.invoke(IPC.MERGE_EXPORT, request),
+  minimizeWindow: (): void => ipcRenderer.send(IPC.WINDOW_MINIMIZE),
+  maximizeWindow: (): void => ipcRenderer.send(IPC.WINDOW_MAXIMIZE),
+  closeWindow: (): void => ipcRenderer.send(IPC.WINDOW_CLOSE),
+  getStorageInfo: (): Promise<StorageInfo> => ipcRenderer.invoke(IPC.STORAGE_GET_INFO)
 }
 
 try {

@@ -47,6 +47,7 @@ import { EditorService } from '../services/editor_service'
 import { ClipMergeService } from '../services/clip_merge_service'
 import { paths } from '../shared/paths'
 import { openEditorWindow } from '../windows/editor_window'
+import { getStorageInfo } from '../services/storage_service'
 
 let pocService: RecordingPocService | null = null
 let mockMatchService: MockMatchService | null = null
@@ -373,6 +374,28 @@ export function registerIpcHandlers(): void {
     })
     return result
   })
+
+  ipcMain.on(IPC.WINDOW_MINIMIZE, (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    win?.minimize()
+  })
+
+  ipcMain.on(IPC.WINDOW_MAXIMIZE, (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    if (!win) return
+    if (win.isMaximized()) {
+      win.unmaximize()
+    } else {
+      win.maximize()
+    }
+  })
+
+  ipcMain.on(IPC.WINDOW_CLOSE, (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    win?.close()
+  })
+
+  ipcMain.handle(IPC.STORAGE_GET_INFO, async () => getStorageInfo())
 }
 
 /** 窗口已显示后再预热 OBS，避免与首屏渲染争抢主线程 */

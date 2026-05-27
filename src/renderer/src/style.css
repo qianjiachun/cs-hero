@@ -1,15 +1,20 @@
+@import './styles/tokens.css';
+@import './styles/desktop-shell.css';
+
 * {
   box-sizing: border-box;
 }
 
 body {
   margin: 0;
-  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
-  background: #0f1419;
-  color: #e7e9ea;
+  font-family: 'Fira Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  background: var(--bg-dark);
+  color: var(--text-primary);
+  overflow: hidden;
 }
 
 #app {
   min-height: 100vh;
-  padding: 24px;
+  display: flex;
+  flex-direction: column;
 }

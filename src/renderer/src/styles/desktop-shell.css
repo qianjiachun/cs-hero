@@ -1,0 +1,52 @@
+/*
+ * 桌面壳层：弱化网页感（禁止随意拖选、拖拽幽灵图等）
+ * 表单/可编辑区域仍允许正常选中文本
+ */
+
+html,
+body,
+#app {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+input,
+textarea,
+[contenteditable='true'],
+.selectable {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+img,
+svg {
+  -webkit-user-drag: none;
+  user-drag: none;
+}
+
+button,
+a,
+[role='button'],
+.nav-item {
+  -webkit-tap-highlight-color: transparent;
+}
+
+button:focus:not(:focus-visible),
+.nav-item:focus:not(:focus-visible),
+.icon-btn:focus:not(:focus-visible),
+.win-btn:focus:not(:focus-visible) {
+  outline: none;
+}
+
+button:focus-visible,
+.nav-item:focus-visible,
+.icon-btn:focus-visible,
+.win-btn:focus-visible {
+  outline: 2px solid rgba(99, 102, 241, 0.55);
+  outline-offset: 2px;
+}
+
+::selection {
+  background: rgba(99, 102, 241, 0.35);
+  color: var(--text-primary);
+}

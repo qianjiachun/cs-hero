@@ -1,0 +1,25 @@
+/* CS Hero — 与 docs/ui-prototypes 原型色板一致 */
+:root {
+  --bg-dark: #0b0e14;
+  --bg-sidebar: #161922;
+  --bg-card: #1c1e26;
+  --bg-card-hover: #22252e;
+  /* 侧栏内小卡：极淡叠层，贴近原型 */
+  --bg-status-card: rgba(255, 255, 255, 0.03);
+  --bg-status-card-hover: rgba(255, 255, 255, 0.05);
+  --border-status-card: rgba(255, 255, 255, 0.05);
+  --bg-nav-active: rgba(99, 102, 241, 0.28);
+  --bg-nav-active-hover: rgba(99, 102, 241, 0.36);
+  --text-primary: #f8fafc;
+  --text-secondary: #94a3b8;
+  --text-muted: #64748b;
+  --accent-color: #6366f1;
+  --accent-hover: #5b45ff;
+  --danger: #ef4444;
+  --warning: #f59e0b;
+  --success: #22c55e;
+  --border-color: rgba(255, 255, 255, 0.06);
+  --radius-panel: 16px;
+  --radius-card: 10px;
+  --radius-nav: 8px;
+}

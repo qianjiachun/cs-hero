@@ -16,3 +16,4 @@ Thumbs.db
 resources/ffmpeg/*
 !resources/ffmpeg/.gitkeep
 prompt.md
+docs

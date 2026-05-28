@@ -74,10 +74,26 @@ export function stopSettingsFileWatcher(): void {
 function syncFromDiskIfChanged(): void {
   try {
     const disk = readSettingsFromDisk()
-    const fp = settingsFingerprint(disk)
-    if (cached && fp === settingsFingerprint(cached)) return
+    const diskFp = settingsFingerprint(disk)
+    if (!cached) {
+      cached = disk
+      lastPersistedFingerprint = diskFp
+      onDiskSettingsChanged?.({ ...disk })
+      return
+    }
+    const cacheFp = settingsFingerprint(cached)
+    if (diskFp === cacheFp) {
+      lastPersistedFingerprint = diskFp
+      return
+    }
+    // 磁盘仍是上次落盘内容，但内存已更新（防抖写入未 flush）→ 以内存为准并补写
+    if (diskFp === lastPersistedFingerprint) {
+      scheduleSettingsPersist()
+      return
+    }
+    // 外部编辑 settings.json
     cached = disk
-    lastPersistedFingerprint = fp
+    lastPersistedFingerprint = diskFp
     onDiskSettingsChanged?.({ ...disk })
   } catch (err) {
     log('Settings file sync failed', err)
@@ -113,7 +129,13 @@ export function loadSettings(): AppSettings {
 export function applySettings(partial: Partial<AppSettings>): AppSettings {
   const next = normalizeSettings({ ...loadSettings(), ...partial })
   cached = next
-  scheduleSettingsPersist()
+  if (partial.recordingMode !== undefined) {
+    if (persistTimer) clearTimeout(persistTimer)
+    persistTimer = undefined
+    flushSettingsToDisk()
+  } else {
+    scheduleSettingsPersist()
+  }
   return { ...next }
 }
 

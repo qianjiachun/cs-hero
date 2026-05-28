@@ -40,7 +40,10 @@ export function getGameIntegrationService(): GameIntegrationService {
 
 export function getGameDetectionService(): GameDetectionService {
   if (!gameDetectionService) {
-    gameDetectionService = new GameDetectionService(getRecorderService())
+    gameDetectionService = new GameDetectionService(
+      getRecorderService(),
+      getGameIntegrationService()
+    )
   }
   return gameDetectionService
 }

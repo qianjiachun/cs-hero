@@ -101,6 +101,8 @@ export interface ContentMatchSummary {
   encoder?: string
   bookmarkCount: number
   clipCount: number
+  /** clips 目录下 kill_*.mp4 数量 */
+  killClipCount: number
   hasFullMatch: boolean
   hasMergedVideo?: boolean
   parseError?: string
@@ -152,6 +154,10 @@ export interface Cs2IntegrationStatus {
   launchOptionMessage?: string
   requiredLaunchOption?: string
   lastPayloadAt?: string
+  /** Windows：cs2.exe 是否在运行；非 Windows 为 undefined */
+  cs2ProcessRunning?: boolean
+  /** 监听中且进程在运行且 GSI 推送未过期 */
+  gsiGameConnected?: boolean
   lastMapPhase?: string
   lastMapName?: string
   lastKills?: number
@@ -165,6 +171,8 @@ export interface Cs2IntegrationStatus {
   bookmarkCount?: number
   clipCount?: number
   recordingError?: string
+  /** 当前会话实际写入中的录制秒数（仅 recording 阶段递增） */
+  recordingElapsedSeconds?: number
 }
 
 export interface MockMatchStatus {
@@ -179,6 +187,7 @@ export interface MockMatchStatus {
   bookmarkCount?: number
   clipCount?: number
   error?: string
+  recordingElapsedSeconds?: number
 }
 
 /** 第五条竖切：打开剪辑窗口 */

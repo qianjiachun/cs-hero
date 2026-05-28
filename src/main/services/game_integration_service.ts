@@ -1,6 +1,8 @@
 import fs from 'fs'
 import path from 'path'
+import { isGsiGameConnected } from '../../shared/gsi-connection'
 import type { Cs2IntegrationStatus, GsiServerState } from '../../shared/recording-types'
+import { isCs2ProcessRunning } from '../obs/cs2_window'
 import type { GsiPayload } from '../../shared/gsi-types'
 import { log, logError } from '../shared/logger'
 import { loadSettings, saveSettings, type RecordingMode } from './settings_service'
@@ -61,6 +63,13 @@ export class GameIntegrationService {
 
   getStatus(): Cs2IntegrationStatus {
     const recorderStatus = this.recorder.getStatus()
+    const cs2ProcessRunning =
+      process.platform === 'win32' ? isCs2ProcessRunning() : undefined
+    const partial = {
+      gsiServerState: this.gsiServerState,
+      lastPayloadAt: this.lastPayloadAt,
+      cs2ProcessRunning
+    }
     return {
       recordingMode: loadSettings().recordingMode as RecordingMode,
       gsiServerState: this.gsiServerState,
@@ -75,6 +84,8 @@ export class GameIntegrationService {
       launchOptionMessage: this.launchOptionMessage,
       requiredLaunchOption: CS2_REQUIRED_LAUNCH_OPTION,
       lastPayloadAt: this.lastPayloadAt,
+      cs2ProcessRunning,
+      gsiGameConnected: isGsiGameConnected(partial),
       lastMapPhase: this.lastMapPhase,
       lastMapName: this.lastMapName,
       lastKills: this.lastKills,
@@ -86,7 +97,8 @@ export class GameIntegrationService {
       bookmarkCount: recorderStatus.bookmarkCount,
       clipCount: recorderStatus.clipCount,
       recordingError: recorderStatus.error,
-      obsReady: recorderStatus.obsReady
+      obsReady: recorderStatus.obsReady,
+      recordingElapsedSeconds: recorderStatus.recordingElapsedSeconds
     }
   }
 
@@ -116,6 +128,16 @@ export class GameIntegrationService {
     this.lastMapName = payload.map?.name
     this.lastKills = payload.player?.match_stats?.kills
     this.lastDeaths = payload.player?.match_stats?.deaths
+  }
+
+  /** CS2 进程退出：清除易误导 UI 的 GSI 缓存 */
+  onCs2ProcessExit(): void {
+    this.lastPayloadAt = undefined
+    this.lastMapPhase = undefined
+    this.lastMapName = undefined
+    this.lastKills = undefined
+    this.lastDeaths = undefined
+    this.notifyStatus()
   }
 
   async start(): Promise<void> {

@@ -9,7 +9,7 @@ import type {
 import { resolveMatchDisplayMap } from '../../shared/match-display'
 import { paths } from '../shared/paths'
 import { log } from '../shared/logger'
-import { countClipsInMatchDir, scanClipsInMatchDir } from './clips_scan'
+import { countClipsInMatchDir, countKillClipsInMatchDir, scanClipsInMatchDir } from './clips_scan'
 
 const DEFAULT_PAGE_SIZE = 20
 
@@ -55,6 +55,7 @@ function summarizeMatch(entry: MatchDirEntry): ContentMatchSummary {
   const matchJsonPath = path.join(dir, 'match.json')
   const fullMatchPath = path.join(dir, 'full_match.mp4')
   const clipCount = countClipsInMatchDir(dir)
+  const killClipCount = countKillClipsInMatchDir(dir)
   const hasFullMatch = fs.existsSync(fullMatchPath)
   const mergedPath = path.join(dir, 'merged.mp4')
   const hasMergedVideo = fs.existsSync(mergedPath)
@@ -69,6 +70,7 @@ function summarizeMatch(entry: MatchDirEntry): ContentMatchSummary {
       status: 'unknown',
       bookmarkCount: 0,
       clipCount,
+      killClipCount,
       hasFullMatch,
       hasMergedVideo,
       parseError: '缺少 match.json'
@@ -86,6 +88,7 @@ function summarizeMatch(entry: MatchDirEntry): ContentMatchSummary {
       status: 'unknown',
       bookmarkCount: 0,
       clipCount,
+      killClipCount,
       hasFullMatch,
       hasMergedVideo,
       parseError: error
@@ -105,6 +108,7 @@ function summarizeMatch(entry: MatchDirEntry): ContentMatchSummary {
     encoder: data.encoder,
     bookmarkCount: data.bookmarks?.length ?? 0,
     clipCount,
+    killClipCount,
     hasFullMatch,
     hasMergedVideo: hasMergedVideo || !!data.merged_video
   }
@@ -149,6 +153,7 @@ export class ContentService {
     const fullMatchPath = path.join(dir, 'full_match.mp4')
     const clips = scanClipsInMatchDir(dir)
     const clipCount = clips.length
+    const killClipCount = clips.filter((c) => c.type === 'kill').length
     const hasFullMatch = fs.existsSync(fullMatchPath)
     const mergedPath = path.join(dir, 'merged.mp4')
     const hasMergedVideo = fs.existsSync(mergedPath)
@@ -163,6 +168,7 @@ export class ContentService {
         status: 'unknown',
         bookmarkCount: 0,
         clipCount,
+        killClipCount,
         hasFullMatch,
         hasMergedVideo,
         parseError: '缺少 match.json',
@@ -184,6 +190,7 @@ export class ContentService {
         status: 'unknown',
         bookmarkCount: 0,
         clipCount,
+        killClipCount,
         hasFullMatch,
         hasMergedVideo,
         parseError: error,
@@ -207,6 +214,7 @@ export class ContentService {
       encoder: data.encoder,
       bookmarkCount: data.bookmarks?.length ?? 0,
       clipCount,
+      killClipCount,
       hasFullMatch,
       hasMergedVideo: hasMergedVideo || !!data.merged_video,
       clips,

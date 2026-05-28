@@ -1,5 +1,7 @@
 @import './styles/tokens.css';
+@import './styles/scrollbar.css';
 @import './styles/desktop-shell.css';
+@import './styles/home-panel.css';
 
 * {
   box-sizing: border-box;

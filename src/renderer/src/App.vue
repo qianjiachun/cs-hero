@@ -11,8 +11,10 @@ import {
   Square,
   X
 } from 'lucide-vue-next'
+import AppCard from './components/AppCard.vue'
 import StatusCard from './components/StatusCard.vue'
 import ServiceStatusCard from './components/ServiceStatusCard.vue'
+import HomeView from './components/home/HomeView.vue'
 
 const currentView = ref('home')
 const storageInfo = ref<StorageInfo | null>(null)
@@ -109,8 +111,7 @@ onUnmounted(() => {
     </header>
 
     <div class="main-container">
-      <!-- Sidebar -->
-      <aside class="sidebar">
+      <AppCard class="sidebar">
         <nav class="nav-menu">
           <button
             v-for="item in navItems"
@@ -137,23 +138,31 @@ onUnmounted(() => {
             @click="openStorageFolder"
           />
         </div>
-      </aside>
+      </AppCard>
 
-      <!-- Main Content Area -->
       <main class="content-area">
-        <!-- Content placeholders based on selected view -->
-        <div v-if="currentView === 'home'" class="placeholder-content">
-          <!-- Home content will go here -->
-        </div>
-        <div v-else-if="currentView === 'recordings'" class="placeholder-content">
-          <!-- Recordings content will go here -->
-        </div>
-        <div v-else-if="currentView === 'clips'" class="placeholder-content">
-          <!-- Clips content will go here -->
-        </div>
-        <div v-else-if="currentView === 'settings'" class="placeholder-content">
-          <!-- Settings content will go here -->
-        </div>
+        <KeepAlive :max="8">
+          <HomeView
+            v-if="currentView === 'home'"
+            key="home"
+            @navigate="currentView = $event"
+          />
+          <div
+            v-else-if="currentView === 'recordings'"
+            key="recordings"
+            class="placeholder-content"
+          />
+          <div
+            v-else-if="currentView === 'clips'"
+            key="clips"
+            class="placeholder-content"
+          />
+          <div
+            v-else-if="currentView === 'settings'"
+            key="settings"
+            class="placeholder-content"
+          />
+        </KeepAlive>
       </main>
     </div>
   </div>
@@ -284,16 +293,7 @@ onUnmounted(() => {
   gap: 16px;
 }
 
-/* Sidebar */
-.sidebar {
-  flex-shrink: 0;
-  width: 200px;
-  background-color: var(--bg-sidebar);
-  border-radius: var(--radius-panel);
-  display: flex;
-  flex-direction: column;
-  padding: 16px 10px;
-}
+/* 侧栏 / 主内容壳层样式见 AppCard.vue；此处仅保留内部布局 */
 
 .nav-menu {
   display: flex;
@@ -353,16 +353,22 @@ onUnmounted(() => {
   margin-top: 12px;
 }
 
-/* Content Area */
 .content-area {
   flex: 1;
-  background-color: transparent;
-  padding: 0;
+  min-width: 0;
+  min-height: 0;
+  background-color: var(--bg-dark);
   overflow-y: auto;
+}
+
+.content-area > :deep(.home-view) {
+  min-height: min(100%, 100%);
 }
 
 .placeholder-content {
   width: 100%;
   height: 100%;
+  padding: 16px;
+  box-sizing: border-box;
 }
 </style>

@@ -89,7 +89,7 @@ onMounted(async () => {
       </li>
     </ul>
 
-    <p v-else class="issue-empty">一切正常，暂无待处理事项</p>
+    <p v-else class="issue-empty">运行正常</p>
   </div>
 </template>
 

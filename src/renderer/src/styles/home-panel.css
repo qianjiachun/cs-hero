@@ -1,0 +1,48 @@
+/* 主页内容区：底色与 header 一致，以下为独立 panel 卡片 */
+.panel-card {
+  background: var(--bg-card);
+  border-radius: var(--radius-panel);
+  padding: clamp(14px, 2vw, 18px);
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.home-view {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-height: 0;
+}
+
+/* 同一行网格：行高取两卡较大者，两列单元格强制等高 */
+.home-top {
+  display: grid;
+  grid-template-columns: 360px minmax(0, 1fr);
+  gap: 16px;
+  align-items: stretch;
+  min-width: 0;
+}
+
+.home-top > .recording-card,
+.home-top > .overview-card {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  align-self: stretch;
+}
+
+@media (max-width: 960px) {
+  .home-top {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto auto;
+  }
+
+  .home-top > .recording-card {
+    width: 100%;
+    height: auto;
+  }
+
+  .home-top > .overview-card {
+    height: auto;
+  }
+}

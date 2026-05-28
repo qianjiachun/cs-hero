@@ -106,6 +106,11 @@ export class RecorderService {
     }
   }
 
+  getRecordingElapsedSeconds(): number {
+    if (this.state !== 'recording' || this.recordingStartMs <= 0) return 0
+    return Math.max(0, Math.floor((Date.now() - this.recordingStartMs) / 1000))
+  }
+
   getStatus(): MockMatchStatus {
     const phase = this.toUiPhase()
     return {
@@ -119,7 +124,8 @@ export class RecorderService {
       matchJson: this.matchJsonPath || undefined,
       bookmarkCount: this.bookmarkCount,
       clipCount: this.clipCount,
-      error: this.error
+      error: this.error,
+      recordingElapsedSeconds: this.getRecordingElapsedSeconds()
     }
   }
 

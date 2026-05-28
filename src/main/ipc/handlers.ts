@@ -261,6 +261,10 @@ export function registerIpcHandlers(): void {
     const prev = loadSettings()
     const next = applySettings(partial)
 
+    if (partial.recordingMode !== undefined) {
+      broadcastCs2IntegrationStatus(getGameIntegrationService().getStatus())
+    }
+
     const reinitObs =
       needsObsReinit(prev, partial) && getRecorderService().getState() === 'idle'
 

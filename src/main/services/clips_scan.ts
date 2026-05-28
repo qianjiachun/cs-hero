@@ -7,6 +7,10 @@ export function countClipsInMatchDir(matchDir: string): number {
   return scanClipsInMatchDir(matchDir).length
 }
 
+export function countKillClipsInMatchDir(matchDir: string): number {
+  return scanClipsInMatchDir(matchDir).filter((c) => c.type === 'kill').length
+}
+
 /**
  * 扫描 clips/*.mp4 作为片段列表真相源。
  * time 无法从文件名可靠还原时填 0；详情页可用 bookmarks 辅助展示。

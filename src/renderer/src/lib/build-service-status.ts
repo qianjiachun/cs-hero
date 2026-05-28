@@ -1,3 +1,4 @@
+import { isGsiGameConnected } from '../../../shared/gsi-connection'
 import type {
   Cs2IntegrationStatus,
   MockMatchPhase,
@@ -222,7 +223,7 @@ export function buildServiceStatus(
       level: 'warning'
     })
   } else if (cs2.gsiServerState === 'listening') {
-    if (cs2.recordingMode === 'auto' && !cs2.lastPayloadAt) {
+    if (cs2.recordingMode === 'auto' && !isGsiGameConnected(cs2)) {
       issues.push({
         id: 'gsi-no-payload',
         title: '等待进入对局',

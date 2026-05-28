@@ -2,28 +2,10 @@ import { app } from 'electron'
 import fs from 'fs'
 import path from 'path'
 import { checkOsnInstalled, getOsnModuleDir } from './osn_paths'
+import { getAppDataRoot, getProjectRoot, getResourcesRoot } from './runtime_roots'
+import { getFfmpegExePath, isFfmpegRuntimeReady } from './ffmpeg_paths'
 
-/** 安装目录 / 开发时仓库根（含 package.json） */
-export function getProjectRoot(): string {
-  if (app.isPackaged) {
-    return path.dirname(process.execPath)
-  }
-  return app.getAppPath()
-}
-
-/** 运行时数据根：dev → {root}/dev/，打包 → 安装根 */
-export function getAppDataRoot(): string {
-  const root = getProjectRoot()
-  return app.isPackaged ? root : path.join(root, 'dev')
-}
-
-/** OBS / FFmpeg 等资源根 */
-export function getResourcesRoot(): string {
-  if (app.isPackaged) {
-    return path.join(process.resourcesPath, 'resources')
-  }
-  return path.join(getProjectRoot(), 'resources')
-}
+export { getAppDataRoot, getProjectRoot, getResourcesRoot } from './runtime_roots'
 
 export const paths = {
   get appDataRoot() {
@@ -61,7 +43,7 @@ export const paths = {
     return path.join(getResourcesRoot(), 'obs', 'data')
   },
   get ffmpegExe() {
-    return path.join(getResourcesRoot(), 'ffmpeg', 'ffmpeg.exe')
+    return getFfmpegExePath()
   }
 }
 
@@ -89,7 +71,9 @@ export function checkResources(): ResourcesCheckResult {
 
   if (!checkOsnInstalled()) {
     missing.push(
-      'obs-studio-node 0.26.22（请执行 pnpm install，从 Streamlabs S3 安装 win64 包）'
+      app.isPackaged
+        ? 'obs-studio-node 运行时（首次启动将自动下载，请检查网络或查看 logs/main.log）'
+        : 'obs-studio-node 0.26.22（请执行 pnpm install，从 Streamlabs S3 安装 win64 包）'
     )
   } else {
     try {
@@ -102,8 +86,12 @@ export function checkResources(): ResourcesCheckResult {
     }
   }
 
-  if (!fs.existsSync(paths.ffmpegExe)) {
-    missing.push(paths.ffmpegExe)
+  if (!isFfmpegRuntimeReady()) {
+    missing.push(
+      app.isPackaged
+        ? 'FFmpeg 运行时（首次启动将自动下载，请检查网络或查看 logs/main.log）'
+        : `FFmpeg：${paths.ffmpegExe}`
+    )
   }
 
   return { ok: missing.length === 0, missing }

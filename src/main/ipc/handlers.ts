@@ -1,4 +1,4 @@
-import { BrowserWindow, ipcMain, shell } from 'electron'
+import { app, BrowserWindow, ipcMain, shell } from 'electron'
 import fs from 'fs'
 import type {
   AppSettings
@@ -34,7 +34,7 @@ import {
 } from '../services/settings_service'
 import { ensureRuntimeDirs } from '../shared/paths'
 import { listDisplays } from '../shared/displays'
-import { log } from '../shared/logger'
+import { log, logError } from '../shared/logger'
 import {
   getFfmpegService,
   getGameIntegrationService,
@@ -48,6 +48,9 @@ import { ClipMergeService } from '../services/clip_merge_service'
 import { paths } from '../shared/paths'
 import { openEditorWindow } from '../windows/editor_window'
 import { getStorageInfo } from '../services/storage_service'
+import { ensureOsnRuntime } from '../services/osn_runtime_service'
+import { ensureFfmpegRuntime } from '../services/ffmpeg_runtime_service'
+import type { RuntimeDownloadStatus } from '../../shared/runtime-download-types'
 
 let pocService: RecordingPocService | null = null
 let mockMatchService: MockMatchService | null = null
@@ -398,16 +401,48 @@ export function registerIpcHandlers(): void {
   ipcMain.handle(IPC.STORAGE_GET_INFO, async () => getStorageInfo())
 }
 
+function broadcastRuntimeDownloadStatus(status: RuntimeDownloadStatus): void {
+  getPocService().setRuntimeDownloadStatus(status)
+  broadcastRecordingStatus(getPocService().getStatus())
+  getMockMatchService().setRuntimeDownloadStatus(status)
+  broadcastMockMatchStatus(getMockMatchService().getStatus())
+}
+
 /** 窗口已显示后再预热 OBS，避免与首屏渲染争抢主线程 */
 export function scheduleObsWarmUp(): void {
   setImmediate(() => {
-    log('Scheduling OBS warm-up')
-    getPocService().warmUpObs(broadcastRecordingStatus)
-    getMockMatchService().warmUpObs(broadcastMockMatchStatus)
-    void getObsService()
-      .ensureReady()
-      .then(() => getObsService().getRuntimeInfo())
-      .catch((err) => log('OBS warm-up runtime info failed', err))
+    void (async () => {
+      log('Scheduling OBS warm-up')
+      try {
+        if (app.isPackaged) {
+          await ensureFfmpegRuntime(broadcastRuntimeDownloadStatus)
+          await ensureOsnRuntime(broadcastRuntimeDownloadStatus)
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err)
+        logError('Recording runtime install failed', err)
+        broadcastRuntimeDownloadStatus({
+          component: message.includes('FFmpeg') ? 'ffmpeg' : 'osn',
+          label: message.includes('FFmpeg') ? '视频处理组件' : '录制组件',
+          phase: 'failed',
+          message,
+          error: message
+        })
+        return
+      }
+
+      getPocService().warmUpObs(broadcastRecordingStatus)
+      getMockMatchService().warmUpObs(broadcastMockMatchStatus)
+      await getObsService()
+        .ensureReady()
+        .then(() => {
+          if (appServicesStarted) {
+            broadcastCs2IntegrationStatus(getGameIntegrationService().getStatus())
+          }
+          return getObsService().getRuntimeInfo()
+        })
+        .catch((err) => logError('OBS warm-up failed', err))
+    })()
   })
 }
 

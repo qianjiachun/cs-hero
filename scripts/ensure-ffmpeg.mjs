@@ -15,7 +15,7 @@ const sources = JSON.parse(
 const cfg = sources.ffmpeg
 
 const vendorDir = path.join(root, 'vendor')
-const zipDest = path.join(vendorDir, cfg.archive)
+const downloadDest = path.join(vendorDir, cfg.archive)
 const ffmpegDir = path.join(root, 'resources', 'ffmpeg')
 const ffmpegExe = path.join(ffmpegDir, 'ffmpeg.exe')
 
@@ -66,19 +66,28 @@ async function main() {
   fs.mkdirSync(vendorDir, { recursive: true })
   fs.mkdirSync(ffmpegDir, { recursive: true })
 
-  if (!fs.existsSync(zipDest) || fs.statSync(zipDest).size < cfg.minBytes) {
+  if (!fs.existsSync(downloadDest) || fs.statSync(downloadDest).size < cfg.minBytes) {
     console.log(`[ensure-ffmpeg] 正在下载 FFmpeg ${cfg.version}…`)
-    const { url, size } = await downloadFirst(collectUrls(), zipDest)
-    console.log(`[ensure-ffmpeg] 已保存 ${zipDest} (${(size / 1024 / 1024).toFixed(1)} MB) ← ${url}`)
+    const { url, size } = await downloadFirst(collectUrls(), downloadDest)
+    console.log(`[ensure-ffmpeg] 已保存 ${downloadDest} (${(size / 1024 / 1024).toFixed(1)} MB) ← ${url}`)
   } else {
     console.log(`[ensure-ffmpeg] 使用缓存 ${cfg.archive}`)
+  }
+
+  if (cfg.archive.endsWith('.exe')) {
+    fs.copyFileSync(downloadDest, ffmpegExe)
+    if (!ffmpegReady()) {
+      throw new Error('FFmpeg 安装后校验失败')
+    }
+    console.log(`[ensure-ffmpeg] 完成 → ${ffmpegExe}`)
+    return
   }
 
   const tmpDir = path.join(vendorDir, '_ffmpeg_extract')
   if (fs.existsSync(tmpDir)) fs.rmSync(tmpDir, { recursive: true, force: true })
 
   console.log('[ensure-ffmpeg] 解压中…')
-  expandZip(zipDest, tmpDir)
+  expandZip(downloadDest, tmpDir)
 
   const srcExe = path.join(tmpDir, cfg.exeInZip)
   if (!fs.existsSync(srcExe)) {
@@ -99,7 +108,7 @@ main().catch((err) => {
   console.error(
     '\n可手动下载 Windows 版 ffmpeg.exe 放到：\n' +
       `  ${ffmpegExe}\n` +
-      '或设置环境变量 FFMPEG_URL 指向 zip 直链后执行：\n' +
+      '或设置环境变量 FFMPEG_URL 指向 exe/zip 直链后执行：\n' +
       '  node scripts/ensure-ffmpeg.mjs'
   )
   process.exit(1)

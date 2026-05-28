@@ -1,3 +1,5 @@
+import type { RuntimeDownloadStatus } from './runtime-download-types'
+
 /** 第一条竖切：PoC 录制状态 */
 export type RecordingPocPhase =
   | 'idle'
@@ -14,6 +16,7 @@ export interface RecordingPocStatus {
   appDataRoot: string
   obsReady?: boolean
   obsWarming?: boolean
+  runtimeDownload?: RuntimeDownloadStatus
   outputDir?: string
   outputVideo?: string
   matchJson?: string
@@ -156,6 +159,7 @@ export interface Cs2IntegrationStatus {
   recordingPhase: MockMatchPhase
   recordingMessage: string
   obsReady: boolean
+  runtimeDownload?: RuntimeDownloadStatus
   matchId?: string
   outputDir?: string
   bookmarkCount?: number

@@ -123,8 +123,18 @@ onUnmounted(() => {
 
     <StatusCard
       title="服务状态"
-      :value="snapshot.summary"
+      value-layout="service"
+      :status-label="snapshot.cardLabel"
+      :status-label-prefix="snapshot.cardLabelPrefix"
+      :headline="snapshot.cardHeadline"
+      :value-title="
+        snapshot.cardLabelPrefix || (snapshot.cardLabel && snapshot.cardLabel !== snapshot.summary)
+          ? snapshot.summary
+          : undefined
+      "
       :status-level="snapshot.level"
+      :progress="snapshot.progress"
+      :progress-tone="snapshot.progressTone"
       clickable
       @click="togglePanel"
     />

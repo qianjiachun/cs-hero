@@ -10,7 +10,7 @@ pnpm dev
 ```
 
 - **`pnpm dev`**：调试环境，数据写入 `dev/`。
-- **`pnpm build`**：打包安装包（需先完成 `pnpm install`）。
+- **`pnpm build`**：打包安装包（体积小，不含 OBS；首次运行自动下载录制组件）。
 
 **平台**：当前仅 **Windows x64**。详见 [CONTRIBUTING.md](CONTRIBUTING.md)。
 

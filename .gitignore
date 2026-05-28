@@ -15,5 +15,6 @@ Thumbs.db
 # FFmpeg 二进制由 scripts/ensure-ffmpeg.mjs 安装，仅保留目录占位
 resources/ffmpeg/*
 !resources/ffmpeg/.gitkeep
+resources/osn-studio-node/
 prompt.md
 docs

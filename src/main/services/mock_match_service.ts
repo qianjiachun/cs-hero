@@ -1,5 +1,6 @@
 import http from 'http'
 import type { MockMatchStatus } from '../../shared/recording-types'
+import type { RuntimeDownloadStatus } from '../../shared/runtime-download-types'
 import { MOCK_STEAM_ID } from '../../shared/gsi-types'
 import type { GsiPayload } from '../../shared/gsi-types'
 import { getAppDataRoot } from '../shared/paths'
@@ -97,12 +98,22 @@ export class MockMatchService {
       bookmarkCount: r.bookmarkCount,
       clipCount: r.clipCount,
       error: r.error,
+      runtimeDownload: r.runtimeDownload,
       appDataRoot: getAppDataRoot()
     }
   }
 
   private setStatus(partial: Partial<MockMatchStatus>): void {
     this.status = { ...this.status, ...partial, appDataRoot: getAppDataRoot() }
+  }
+
+  setRuntimeDownloadStatus(status: RuntimeDownloadStatus): void {
+    this.setStatus({
+      message: status.message,
+      obsReady: false,
+      runtimeDownload: status,
+      error: status.error
+    })
   }
 
   warmUpObs(onUpdate?: (s: MockMatchStatus) => void): void {
@@ -121,7 +132,7 @@ export class MockMatchService {
       try {
         await this.obs.ensureReady()
         if (!this.running) {
-          this.setStatus({ obsReady: true, message: '就绪' })
+          this.setStatus({ obsReady: true, message: '就绪', runtimeDownload: undefined })
           notify()
         }
         log('OBS warm-up complete (mock match)')

@@ -3,6 +3,7 @@
     "version": "0.26.22",
     "archive": "osn-0.26.22-release-win64.tar.gz",
     "urls": [
+      "https://cdn.lunaris.win/qianjiachun/cs-hero/osn-0.26.22-release-win64.tar.gz",
       "https://s3-us-west-2.amazonaws.com/obsstudionodes3.streamlabs.com/osn-0.26.22-release-win64.tar.gz"
     ],
     "minBytes": 1000000,
@@ -10,11 +11,10 @@
   },
   "ffmpeg": {
     "version": "7.1",
-    "archive": "ffmpeg-n7.1-latest-win64-gpl-7.1.zip",
+    "archive": "ffmpeg.exe",
     "urls": [
-      "https://github.com/BtbN/FFmpeg-Builds/releases/download/n7.1/ffmpeg-n7.1-latest-win64-gpl-7.1.zip"
+      "https://cdn.lunaris.win/qianjiachun/cs-hero/ffmpeg.exe"
     ],
-    "exeInZip": "ffmpeg-n7.1-latest-win64-gpl-7.1/bin/ffmpeg.exe",
     "minBytes": 500000
   }
 }

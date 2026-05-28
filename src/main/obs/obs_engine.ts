@@ -31,6 +31,7 @@ export type ObsLogFn = (level: 'info' | 'error', message: string, detail?: strin
 /** 在子进程内运行的 OBS/libobs 逻辑（不依赖 electron.screen） */
 export class ObsEngine {
   private osn: Osn | null = null
+  private osnModuleDir = ''
   private initialized = false
   private scene: Osn | null = null
   private desktopAudio: Osn | null = null
@@ -65,7 +66,12 @@ export class ObsEngine {
 
   private loadOsn(): Osn {
     if (!this.osn) {
-      this.osn = nodeRequire('obs-studio-node')
+      const entry = this.osnModuleDir
+        ? path.join(this.osnModuleDir, 'index.js')
+        : ''
+      this.osn = entry && fs.existsSync(entry)
+        ? nodeRequire(entry)
+        : nodeRequire('obs-studio-node')
     }
     return this.osn
   }
@@ -77,8 +83,9 @@ export class ObsEngine {
     this.display = payload.display
     this.recording = payload.recording
 
-    const osn = this.loadOsn()
     const { osnModuleDir, paths: p, osnVersion } = payload
+    this.osnModuleDir = osnModuleDir
+    const osn = this.loadOsn()
 
     fs.mkdirSync(p.obsConfigPath, { recursive: true })
     fs.mkdirSync(p.tempDir, { recursive: true })

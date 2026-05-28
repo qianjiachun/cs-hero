@@ -5,6 +5,7 @@ import { randomUUID } from 'crypto'
 import type { FfmpegJobPhase, FfmpegJobStatus, FfmpegJobType, VideoMetadata } from '../../shared/recording-types'
 import { paths } from '../shared/paths'
 import { log, logError } from '../shared/logger'
+import { ensureFfmpegRuntime } from './ffmpeg_runtime_service'
 
 type JobProgressListener = (status: FfmpegJobStatus) => void
 
@@ -77,14 +78,15 @@ export class FfmpegService {
     job.tempDir = undefined
   }
 
-  assertAvailable(): void {
+  private async ensureAvailable(): Promise<void> {
+    await ensureFfmpegRuntime()
     if (!fs.existsSync(paths.ffmpegExe)) {
       throw new Error(`未找到 FFmpeg：${paths.ffmpegExe}`)
     }
   }
 
   async probeVideo(filePath: string): Promise<VideoMetadata> {
-    this.assertAvailable()
+    await this.ensureAvailable()
     if (!fs.existsSync(filePath)) {
       return { durationSeconds: 0, probeError: '源文件不存在' }
     }
@@ -265,8 +267,8 @@ export class FfmpegService {
       })
   }
 
-  private runSimple(args: string[]): Promise<void> {
-    this.assertAvailable()
+  private async runSimple(args: string[]): Promise<void> {
+    await this.ensureAvailable()
     return new Promise((resolve, reject) => {
       log('FFmpeg', paths.ffmpegExe, args.join(' '))
       const proc = spawn(paths.ffmpegExe, args, { windowsHide: true })
@@ -306,7 +308,7 @@ export class FfmpegService {
     return jobId
   }
 
-  private runFfmpegJob(opts: {
+  private async runFfmpegJob(opts: {
     jobId: string
     type: FfmpegJobType
     args: string[]
@@ -314,7 +316,7 @@ export class FfmpegService {
     progressTotalSeconds?: number
     tempDir?: string
   }): Promise<void> {
-    this.assertAvailable()
+    await this.ensureAvailable()
 
     let job = this.jobs.get(opts.jobId)
     if (!job) {

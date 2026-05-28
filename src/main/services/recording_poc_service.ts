@@ -1,6 +1,7 @@
 import fs from 'fs'
 import path from 'path'
 import type { RecordingPocStatus } from '../../shared/recording-types'
+import type { RuntimeDownloadStatus } from '../../shared/runtime-download-types'
 import { getAppDataRoot, paths } from '../shared/paths'
 import { log, logError } from '../shared/logger'
 import { ObsService } from './obs_service'
@@ -41,10 +42,22 @@ export class RecordingPocService {
     this.status = { ...this.status, ...partial, appDataRoot: getAppDataRoot() }
   }
 
+  /** 打包版首次下载运行时时的 UI 提示 */
+  setRuntimeDownloadStatus(status: RuntimeDownloadStatus): void {
+    this.setStatus({
+      phase: 'idle',
+      message: status.message,
+      obsReady: status.phase === 'ready' ? this.obs.isInitialized() : false,
+      obsWarming: status.phase !== 'failed' && status.phase !== 'ready',
+      runtimeDownload: status,
+      error: status.error
+    })
+  }
+
   /** 应用启动后后台预热 OBS，录制时直接 start/stop，无需每次冷启动 */
   warmUpObs(onUpdate?: (s: RecordingPocStatus) => void): void {
     if (this.obs.isInitialized()) {
-      this.setStatus({ obsReady: true })
+      this.setStatus({ obsReady: true, obsWarming: false })
       onUpdate?.(this.getStatus())
       return
     }
@@ -56,6 +69,7 @@ export class RecordingPocService {
       phase: 'idle',
       message: '正在初始化 OBS…',
       obsReady: false,
+      obsWarming: true,
       error: undefined
     })
     notify()
@@ -64,7 +78,12 @@ export class RecordingPocService {
       try {
         await this.obs.ensureReady()
         if (!this.running) {
-          this.setStatus({ obsReady: true, message: '就绪' })
+          this.setStatus({
+            obsReady: true,
+            obsWarming: false,
+            message: '就绪',
+            runtimeDownload: undefined
+          })
           notify()
         }
         log('OBS warm-up complete')
@@ -73,6 +92,7 @@ export class RecordingPocService {
         if (!this.running) {
           this.setStatus({
             obsReady: false,
+            obsWarming: false,
             message: 'OBS 初始化失败，点击录制将重试',
             error: message
           })

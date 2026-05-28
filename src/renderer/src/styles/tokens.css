@@ -18,8 +18,16 @@
   --danger: #ef4444;
   --warning: #f59e0b;
   --success: #22c55e;
+  --status-busy: #38bdf8;
+  --status-busy-muted: #7dd3fc;
+  --progress-download-from: #0284c7;
+  --progress-download-to: #22d3ee;
   --border-color: rgba(255, 255, 255, 0.06);
   --radius-panel: 16px;
   --radius-card: 10px;
   --radius-nav: 8px;
+  --motion-normal: 220ms;
+  --motion-slow: 340ms;
+  --motion-progress: 280ms;
+  --motion-ease: cubic-bezier(0.4, 0, 0.2, 1);
 }

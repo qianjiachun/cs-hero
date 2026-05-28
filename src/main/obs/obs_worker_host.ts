@@ -7,7 +7,10 @@ import { loadSettings } from '../services/settings_service'
 import { resolveRecordingDisplay } from '../shared/displays'
 import { planRecordingCanvas } from '../shared/recording_size_planner'
 import type { AppSettings } from '../../shared/settings'
-import { getOsnConfigDataPath, getOsnModuleDir, OSN_VERSION } from '../shared/osn_paths'
+import { OSN_VERSION } from '../shared/osn_constants'
+import { fixPackagedPath, getOsnConfigDataPath, getOsnModuleDir } from '../shared/osn_paths'
+import { ensureOsnRuntime } from '../services/osn_runtime_service'
+import { ensureFfmpegRuntime } from '../services/ffmpeg_runtime_service'
 import { log, logError } from '../shared/logger'
 import type {
   ObsDisplayConfig,
@@ -117,7 +120,8 @@ export class ObsWorkerHost {
   }
 
   private getWorkerPath(): string {
-    return path.join(__dirname, 'obs_worker.js')
+    // fork 无法执行 asar 内脚本，须走 asarUnpack + unpacked 路径
+    return fixPackagedPath(path.join(__dirname, 'obs_worker.js'))
   }
 
   private buildInitPayload(): ObsInitPayload {
@@ -276,6 +280,9 @@ export class ObsWorkerHost {
   }
 
   private async runInit(): Promise<void> {
+    await ensureFfmpegRuntime()
+    await ensureOsnRuntime()
+
     const check = checkResources()
     if (!check.ok) {
       throw new Error(`录制依赖不完整，缺少：\n${check.missing.join('\n')}`)

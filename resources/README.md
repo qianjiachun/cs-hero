@@ -6,16 +6,18 @@
 
 - 安装：`preinstall` → `scripts/ensure-osn.mjs`
 - 缓存：`vendor/osn-0.26.22-release-win64.tar.gz`（gitignore）
-- 链接：`node_modules/obs-studio-node/`（打包时 `asarUnpack`）
+- 开发：`node_modules/obs-studio-node/`（`pnpm install`）
+- 打包：**安装包不含 OSN**；首次启动从 Lunaris CDN 下载（失败则回退 Streamlabs）到 `{安装目录}/runtime/osn-studio-node/`（约 700MB，仅一次）
+- OBS 子进程：`out/main/obs_worker.js`（须 `asarUnpack`，否则无法 fork）
 - OBS 配置/日志：`dev/osn-data/`（开发）或安装目录下 `osn-data/`
 
 ## FFmpeg
 
-- 安装：`postinstall` → `scripts/ensure-ffmpeg.mjs`
-- 目标：`resources/ffmpeg/ffmpeg.exe`（gitignore，仅保留 `.gitkeep`）
-- 默认源：BtbN [FFmpeg-Builds](https://github.com/BtbN/FFmpeg-Builds/releases) win64 gpl zip
+- 开发：`postinstall` → `scripts/ensure-ffmpeg.mjs`，目标为 `resources/ffmpeg/ffmpeg.exe`（gitignore，仅保留 `.gitkeep`）
+- 打包：安装包不含 FFmpeg；首次启动从 Lunaris CDN 下载到 `{安装目录}/runtime/ffmpeg/ffmpeg.exe`
+- 默认源：`https://cdn.lunaris.win/qianjiachun/cs-hero/ffmpeg.exe`
 
-手动放置：将 `ffmpeg.exe` 放到 `resources/ffmpeg/` 即可，脚本会跳过下载。
+开发时手动放置：将 `ffmpeg.exe` 放到 `resources/ffmpeg/` 即可，脚本会跳过下载。
 
 ## 重试
 

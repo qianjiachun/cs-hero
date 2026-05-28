@@ -3,7 +3,38 @@ import type {
   MockMatchPhase,
   RecordingPocStatus
 } from '../../../shared/recording-types'
+import type { RuntimeDownloadStatus } from '../../../shared/runtime-download-types'
 import type { ServiceHealthLevel, ServiceStatusIssue, ServiceStatusSnapshot } from '../../../shared/service-status-types'
+
+const RUNTIME_LOAD_PREFIX: Record<RuntimeDownloadStatus['component'], string> = {
+  osn: '加载录制组件',
+  ffmpeg: '加载视频组件'
+}
+
+function runtimeDownloadSummary(runtimeDownload: RuntimeDownloadStatus): string {
+  if (runtimeDownload.phase === 'extracting') {
+    return `解压${runtimeDownload.label}`
+  }
+  const prefix = RUNTIME_LOAD_PREFIX[runtimeDownload.component]
+  const progressLabel =
+    runtimeDownload.progress !== undefined ? ` ${Math.round(runtimeDownload.progress)}%` : ''
+  return `${prefix}${progressLabel}`
+}
+
+function runtimeDownloadCardFields(
+  runtimeDownload: RuntimeDownloadStatus
+): Pick<ServiceStatusSnapshot, 'cardLabel' | 'cardLabelPrefix' | 'cardHeadline'> {
+  if (runtimeDownload.phase === 'extracting') {
+    return { cardLabel: `解压${runtimeDownload.label}` }
+  }
+  return {
+    cardLabelPrefix: RUNTIME_LOAD_PREFIX[runtimeDownload.component],
+    cardHeadline:
+      runtimeDownload.progress !== undefined
+        ? `${Math.round(runtimeDownload.progress)}%`
+        : undefined
+  }
+}
 
 const RECORDING_ACTIVE_PHASES: MockMatchPhase[] = [
   'waiting_cs2',
@@ -27,12 +58,50 @@ function recordingSummary(cs2: Cs2IntegrationStatus): string {
   return PHASE_SUMMARY[cs2.recordingPhase] ?? '录制中'
 }
 
+/** 侧栏卡片第二行：在窄宽度下更易读，详情仍用完整 summary */
+const CARD_LINE_SHORT: Record<string, string> = {
+  录制功能准备中: 'OBS 初始化中',
+  录制功能未就绪: '录制未就绪',
+  游戏状态监听未配置: 'GSI 未配置',
+  找不到游戏配置位置: '找不到配置',
+  无法监听游戏状态: '监听失败',
+  'Steam 启动选项未设置': '启动项未设',
+  等待进入对局: '等待对局',
+  游戏配置已更新: '需重启游戏',
+  监听端口被占用: '端口冲突',
+  监听端口已变更: '端口已变更',
+  未在监听游戏: '未在监听',
+  启动选项尚未检测: '启动项待检'
+}
+
+function compactRuntimeSummary(summary: string): string {
+  return summary.replace('视频处理组件', '视频组件')
+}
+
+function buildCardDisplay(
+  summary: string,
+  level: ServiceHealthLevel
+): Pick<ServiceStatusSnapshot, 'cardHeadline' | 'cardLabel'> {
+  if (level === 'ok' && summary === '正常') {
+    return { cardHeadline: '正常' }
+  }
+  const mapped = CARD_LINE_SHORT[summary] ?? compactRuntimeSummary(summary)
+  return { cardLabel: mapped }
+}
+
+function withCardDisplay(
+  snapshot: Omit<ServiceStatusSnapshot, 'cardHeadline' | 'cardLabel'>
+): ServiceStatusSnapshot {
+  const display = buildCardDisplay(snapshot.summary, snapshot.level)
+  return { ...snapshot, ...display }
+}
+
 export function buildServiceStatus(
   cs2: Cs2IntegrationStatus | null | undefined,
   poc: RecordingPocStatus | null | undefined
 ): ServiceStatusSnapshot {
   if (!cs2) {
-    return {
+    return withCardDisplay({
       level: 'warning',
       summary: '加载中',
       issues: [
@@ -44,25 +113,63 @@ export function buildServiceStatus(
         }
       ],
       recordingActive: false
-    }
+    })
   }
 
   const issues: ServiceStatusIssue[] = []
+  const runtimeDownload = poc?.runtimeDownload
+  const runtimeDownloading =
+    runtimeDownload?.phase === 'downloading' || runtimeDownload?.phase === 'extracting'
   const obsWarming = poc?.obsWarming === true
   const recordingActive = isRecordingActive(cs2.recordingPhase)
 
+  if (runtimeDownloading) {
+    issues.push({
+      id: `runtime-${runtimeDownload.component}`,
+      title: `${runtimeDownload.label}准备中`,
+      detail: runtimeDownload.message,
+      level: 'info'
+    })
+    return {
+      level: 'busy',
+      summary: runtimeDownloadSummary(runtimeDownload),
+      ...runtimeDownloadCardFields(runtimeDownload),
+      issues,
+      recordingActive: false,
+      progress: runtimeDownload.progress,
+      progressTone: 'download'
+    }
+  }
+
+  if (runtimeDownload?.phase === 'failed') {
+    issues.push({
+      id: `runtime-${runtimeDownload.component}`,
+      title: `${runtimeDownload.label}下载失败`,
+      detail: runtimeDownload.error ?? runtimeDownload.message,
+      level: 'critical'
+    })
+  }
+
   if (obsWarming && !cs2.obsReady) {
+    const warmingDetail =
+      poc?.message && /下载|解压|录制组件|视频处理组件/.test(poc.message)
+        ? poc.message
+        : '首次启动可能需要一点时间'
     issues.push({
       id: 'obs-warming',
       title: '录制功能准备中',
-      detail: '首次启动可能需要一点时间',
+      detail: warmingDetail,
       level: 'info'
     })
   } else if (!cs2.obsReady) {
+    const obsDetail =
+      poc?.error?.trim() ||
+      (poc?.message && poc.message !== '就绪' ? poc.message : undefined) ||
+      '请稍后重试，或重启本软件。若仍失败，请查看安装目录下 logs/main.log'
     issues.push({
       id: 'obs-not-ready',
       title: '录制功能未就绪',
-      detail: '请稍后重试，或重启本软件',
+      detail: obsDetail,
       level: 'critical'
     })
   }
@@ -169,15 +276,18 @@ export function buildServiceStatus(
   const criticalCount = visibleIssues.filter((i) => i.level === 'critical').length
   const warningCount = visibleIssues.filter((i) => i.level === 'warning').length
   const hasProblem = criticalCount > 0 || warningCount > 0
+  const obsPreparing = obsWarming && !cs2.obsReady
 
   let level: ServiceHealthLevel = 'ok'
   if (criticalCount > 0) level = 'critical'
   else if (warningCount > 0) level = 'warning'
-  else if (recordingActive) level = 'busy'
+  else if (obsPreparing || recordingActive) level = 'busy'
 
   let summary: string
   if (!hasProblem) {
-    if (recordingActive) {
+    if (obsPreparing) {
+      summary = '录制功能准备中'
+    } else if (recordingActive) {
       summary = recordingSummary(cs2)
     } else {
       summary = '正常'
@@ -190,10 +300,11 @@ export function buildServiceStatus(
     summary = warningCount === 1 && first ? first.title : `${warningCount} 项待处理`
   }
 
-  return {
+  return withCardDisplay({
     level,
     summary,
     issues,
-    recordingActive
-  }
+    recordingActive,
+    progress: runtimeDownload?.phase === 'ready' ? 100 : undefined
+  })
 }

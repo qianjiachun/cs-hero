@@ -48,7 +48,7 @@ pnpm run download-electron
 | 环境变量 | 作用 |
 |----------|------|
 | `ELECTRON_MIRROR` | Electron 下载镜像（见 `.npmrc`） |
-| `OSN_URL` | OSN tar.gz 直链，多个用逗号分隔，**优先**于默认 S3 |
+| `OSN_URL` | OSN tar.gz 直链，多个用逗号分隔，**优先**于 Lunaris / Streamlabs 默认列表 |
 | `FFMPEG_URL` | FFmpeg zip 直链，优先于默认 GitHub |
 
 维护者可在 **GitHub Releases** 上传与 `scripts/runtime-sources.json` 同名的文件，然后把 Release 直链写入 `OSN_URL` / `FFMPEG_URL`，方便国内贡献者。
@@ -58,7 +58,7 @@ pnpm run download-electron
 ### 完全离线 / 手动放置
 
 1. OSN：`vendor/osn-0.26.22-release-win64.tar.gz`  
-   来源：<https://s3-us-west-2.amazonaws.com/obsstudionodes3.streamlabs.com/osn-0.26.22-release-win64.tar.gz>
+   默认：`cdn.lunaris.win` → 失败时回退 Streamlabs S3（见 `scripts/runtime-sources.json`）
 2. FFmpeg：`resources/ffmpeg/ffmpeg.exe`  
    来源：<https://github.com/BtbN/FFmpeg-Builds/releases>（win64 gpl zip 内 `bin/ffmpeg.exe`）
 3. Electron：执行 `node scripts/ensure-electron.mjs`（需先有 `node_modules/electron`）

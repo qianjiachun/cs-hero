@@ -1,25 +1,26 @@
+import { app } from 'electron'
 import { createRequire } from 'module'
 import path from 'path'
 import fs from 'fs'
-import { getAppDataRoot } from './paths'
+import { getAppDataRoot } from './runtime_roots'
+import { fixPackagedPath } from './osn_path_utils'
+import { OSN_VERSION } from './osn_constants'
+
+export { OSN_VERSION, OSN_DIST, OSN_DOWNLOAD_URLS } from './osn_constants'
+export { fixPackagedPath } from './osn_path_utils'
 
 const nodeRequire = createRequire(import.meta.url)
 
-/** 与 package.json / Streamlabs S3 发行包一致 */
-export const OSN_VERSION = '0.26.22'
-
-export const OSN_DIST = {
-  win64: `https://s3-us-west-2.amazonaws.com/obsstudionodes3.streamlabs.com/osn-${OSN_VERSION}-release-win64.tar.gz`
-} as const
-
-/** 打包时 asar 内路径替换为 unpacked */
-export function fixPackagedPath(p: string): string {
-  return p.replace(/app\.asar([/\\])/g, 'app.asar.unpacked$1')
-}
-
 /** obs-studio-node 模块目录（含 libobs 与插件） */
 export function getOsnModuleDir(): string {
+  if (app.isPackaged) {
+    return getOsnRuntimeDir()
+  }
   return fixPackagedPath(path.dirname(nodeRequire.resolve('obs-studio-node')))
+}
+
+export function getOsnRuntimeDir(): string {
+  return path.join(getAppDataRoot(), 'runtime', 'osn-studio-node')
 }
 
 /**
@@ -31,9 +32,23 @@ export function getOsnConfigDataPath(): string {
 }
 
 export function checkOsnInstalled(): boolean {
+  if (app.isPackaged) {
+    return isOsnRuntimeReady()
+  }
   try {
     const dir = getOsnModuleDir()
-    return fs.existsSync(dir)
+    return fs.existsSync(path.join(dir, 'index.js'))
+  } catch {
+    return false
+  }
+}
+
+export function isOsnRuntimeReady(): boolean {
+  const dir = getOsnRuntimeDir()
+  if (!fs.existsSync(path.join(dir, 'index.js'))) return false
+  try {
+    const marker = fs.readFileSync(path.join(dir, '.cs-hero-osn-version'), 'utf8').trim()
+    return marker === OSN_VERSION
   } catch {
     return false
   }

@@ -60,7 +60,7 @@ watch(
   <div
     class="status-card"
     :class="[
-      { clickable },
+      { clickable, 'status-card-service': valueLayout === 'service' },
       icon === 'folder' && alertLevel ? `storage-${alertLevel}` : ''
     ]"
     :title="valueTitle"
@@ -176,6 +176,8 @@ watch(
   display: flex;
   flex-direction: column;
   gap: 8px;
+  font-size: var(--status-card-font-size, 12px);
+  line-height: var(--status-card-line-height, 20px);
   box-shadow: none;
   transition:
     background-color 0.2s ease,
@@ -275,10 +277,15 @@ watch(
   color: var(--accent-color);
 }
 
+.card-label,
+.card-headline,
+.card-value {
+  font-size: inherit;
+  line-height: inherit;
+}
+
 .card-label {
   display: block;
-  font-size: 12px;
-  line-height: 20px;
   color: var(--text-secondary);
   white-space: nowrap;
   overflow: hidden;
@@ -287,8 +294,6 @@ watch(
 
 .card-headline {
   display: block;
-  font-size: 12px;
-  line-height: 20px;
   color: var(--text-secondary);
   white-space: nowrap;
 }
@@ -394,13 +399,20 @@ watch(
   flex-shrink: 1;
   min-width: 0;
   max-width: 58%;
-  font-size: 12px;
-  line-height: 20px;
   color: var(--text-secondary);
   text-align: right;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.status-card-service .card-label,
+.status-card-service .card-headline,
+.status-card-service .card-percent,
+.status-card-service :deep(.status-swap-enter-active),
+.status-card-service :deep(.status-swap-leave-active) {
+  font-size: inherit;
+  line-height: inherit;
 }
 
 .progress-bar {

@@ -26,6 +26,8 @@
   --radius-panel: 16px;
   --radius-card: 10px;
   --radius-nav: 8px;
+  --status-card-font-size: 12px;
+  --status-card-line-height: 20px;
   --motion-normal: 220ms;
   --motion-slow: 340ms;
   --motion-progress: 280ms;

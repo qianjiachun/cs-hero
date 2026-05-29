@@ -11,9 +11,16 @@ import type {
 } from './obs_ipc'
 import { getCs2WindowFallbacks, resolveCs2Window, type Cs2WindowInfo } from './cs2_window'
 import { pickRecordingEncoder } from '../services/encoder_service'
+import type { AppSettings } from '../../shared/settings'
 import {
+  capOutputToSource,
+  effectiveRecordingFps,
   encoderCapabilityWarning,
-  recordingBitrateKbps
+  planRecordingCanvas,
+  recordingBitrateKbps,
+  recordingQualityCq,
+  recordingQualityModeLabel,
+  toEven
 } from '../shared/recording_size_planner'
 
 const nodeRequire = createRequire(import.meta.url)
@@ -45,6 +52,9 @@ export class ObsEngine {
   private selectedEncoder = 'obs_x264'
   private encoderDisplay = 'x264'
   private videoBitrateKbps = 0
+  private qualityCq = 18
+  private qualityModeLabel = 'CQP 18'
+  private effectiveFps = 60
   private encoderWarning: string | undefined
   private availableEncoders: string[] = []
   private signalWaiters: Array<(info: Osn) => void> = []
@@ -135,9 +145,11 @@ export class ObsEngine {
       baseHeight: d?.baseHeight ?? 0,
       outputWidth: d?.outputWidth ?? 0,
       outputHeight: d?.outputHeight ?? 0,
-      recordingFps: fps,
+      recordingFps: this.effectiveFps || fps,
       recordingQuality: quality,
       videoBitrateKbps: this.videoBitrateKbps || recordingBitrateKbps(quality, fps),
+      qualityCq: this.qualityCq,
+      qualityModeLabel: this.qualityModeLabel,
       encoderWarning: this.encoderWarning,
       captureModeLabel: '游戏采集（自动）· 回退显示器 · WGC/DXGI 自动',
       recordingDisplayLabel: d?.displayLabel ?? '主显示器'
@@ -146,26 +158,37 @@ export class ObsEngine {
 
   private initVideo(osn: Osn): void {
     const d = this.display!
-    const fps = this.recording?.recordingFps ?? 60
+    const requested = this.recording?.recordingFps ?? 60
+    this.effectiveFps = requested
+    this.applyVideoOutput(osn, d.baseWidth, d.baseHeight, this.effectiveFps)
+  }
+
+  private applyVideoOutput(osn: Osn, width: number, height: number, fps: number): void {
+    const w = toEven(width)
+    const h = toEven(height)
+    if (typeof osn.NodeObs.OBS_API_resetVideo === 'function') {
+      osn.NodeObs.OBS_API_resetVideo()
+    }
     this.video = osn.VideoFactory.create()
     this.video.video = {
       fpsNum: fps,
       fpsDen: 1,
-      baseWidth: d.baseWidth,
-      baseHeight: d.baseHeight,
-      outputWidth: d.outputWidth,
-      outputHeight: d.outputHeight,
+      baseWidth: w,
+      baseHeight: h,
+      outputWidth: w,
+      outputHeight: h,
       outputFormat: osn.EVideoFormat?.NV12 ?? 0,
       colorspace: osn.EColorSpace?.CS709 ?? osn.EColorSpace?.['709'] ?? 1,
       range: osn.ERangeType?.Partial ?? 1,
-      scaleType: osn.EScaleType?.Bilinear ?? 3,
+      scaleType: osn.EScaleType?.Lanczos ?? osn.EScaleType?.Bicubic ?? osn.EScaleType?.Bilinear ?? 3,
       fpsType: osn.EFPSType?.Common ?? 0
     }
+    this.applyRecordingFps(osn, fps)
     this.log(
       'OBS video',
       JSON.stringify({
-        base: `${d.baseWidth}x${d.baseHeight}`,
-        output: `${d.outputWidth}x${d.outputHeight}`,
+        base: `${w}x${h}`,
+        output: `${w}x${h}`,
         fps
       })
     )
@@ -181,15 +204,16 @@ export class ObsEngine {
     const picked = pickRecordingEncoder(encoders)
     this.selectedEncoder = picked.selected
     this.encoderDisplay = picked.displayName
+    this.qualityCq = recordingQualityCq(quality, fps)
+    this.qualityModeLabel = recordingQualityModeLabel(quality, picked.selected, fps)
     this.videoBitrateKbps = recordingBitrateKbps(quality, fps)
     this.encoderWarning = encoderCapabilityWarning(picked.selected, quality, fps)
 
     this.setSetting(osn, 'Output', 'RecEncoder', picked.selected)
     this.setSetting(osn, 'Output', 'RecFilePath', p.tempDir)
     this.setSetting(osn, 'Output', 'RecFormat', 'mkv')
-    this.setSetting(osn, 'Output', 'VBitrate', this.videoBitrateKbps)
     this.applyRecordingFps(osn, fps)
-    this.applyEncoderBitrateHints(osn, picked.selected, this.videoBitrateKbps)
+    const appliedQuality = this.applyRecordingQuality(osn, picked.selected, quality)
     this.trySetVideoAdapter(osn, 0)
     this.log(
       'OBS output configured',
@@ -200,7 +224,10 @@ export class ObsEngine {
         recDir: p.tempDir,
         fps,
         quality,
-        videoBitrateKbps: this.videoBitrateKbps,
+        qualityMode: this.qualityModeLabel,
+        qualityCq: this.qualityCq,
+        appliedQuality,
+        videoBitrateEstimateKbps: this.videoBitrateKbps,
         encoderWarning: this.encoderWarning
       })
     )
@@ -218,17 +245,154 @@ export class ObsEngine {
     this.setSetting(osn, 'Video', 'FPSCommon', fps)
   }
 
-  private applyEncoderBitrateHints(osn: Osn, encoderId: string, kbps: number): void {
+  /** 高级录制：写入编码器专属 CQP/CRF 参数（Simple 模式的 VBitrate/RecQuality 无效） */
+  private applyRecordingQuality(
+    osn: Osn,
+    encoderId: string,
+    quality: AppSettings['recordingQuality']
+  ): Record<string, string | number | boolean | undefined> {
+    const cq = recordingQualityCq(quality)
     const lower = encoderId.toLowerCase()
-    if (lower.includes('nvenc') || lower.includes('amf') || lower.includes('qsv')) {
-      this.trySetSetting(osn, 'Output', 'RecQuality', 'HQ')
-      this.trySetSetting(osn, 'Output', 'RecRB', 0)
+    const applied: Record<string, string | number | boolean | undefined> = { cq }
+
+    if (lower.includes('x264') && !lower.includes('nvenc')) {
+      applied.rate_control = this.trySetEncoderParam(osn, encoderId, ['rate_control', 'Recrate_control'], 'CRF')
+      applied.crf = this.trySetEncoderParam(osn, encoderId, ['crf', 'Reccrf'], cq)
+      applied.preset = this.trySetEncoderParam(osn, encoderId, ['preset', 'Recpreset'], 'faster')
+      applied.profile = this.trySetEncoderParam(osn, encoderId, ['profile', 'Recprofile'], 'high')
+      applied.keyint_sec = this.trySetEncoderParam(osn, encoderId, ['keyint_sec', 'Reckeyint_sec'], 2)
+      return applied
     }
-    if (lower.includes('x264')) {
-      this.trySetSetting(osn, 'Output', 'x264UseAdvanced', false)
+
+    if (lower.includes('qsv')) {
+      applied.rate_control = this.trySetEncoderParam(osn, encoderId, ['rate_control', 'Recrate_control'], 'CQP')
+      applied.cqp = this.trySetEncoderParam(
+        osn,
+        encoderId,
+        ['cqp', 'Reccqp', 'icq_quality', 'Recicq_quality'],
+        cq
+      )
+      applied.preset = this.trySetEncoderParam(osn, encoderId, ['preset', 'Recpreset'], 'quality')
+      applied.profile = this.trySetEncoderParam(osn, encoderId, ['profile', 'Recprofile'], 'high')
+      return applied
     }
-    this.trySetSetting(osn, 'Output', 'RecRB', kbps)
-    this.setSetting(osn, 'Output', 'VBitrate', kbps)
+
+    if (lower.includes('amf')) {
+      applied.rate_control = this.trySetEncoderParam(osn, encoderId, ['rate_control', 'Recrate_control'], 'CQP')
+      applied.cqp = this.trySetEncoderParam(
+        osn,
+        encoderId,
+        ['cqp', 'Reccqp', 'qp_i', 'Recqp_i'],
+        cq
+      )
+      applied.preset = this.trySetEncoderParam(
+        osn,
+        encoderId,
+        ['preset', 'Recpreset', 'quality_preset', 'Recquality_preset'],
+        'quality'
+      )
+      return applied
+    }
+
+    if (lower.includes('nvenc')) {
+      applied.rate_control = this.trySetEncoderParam(osn, encoderId, ['rate_control', 'Recrate_control'], 'CQP')
+      applied.cqp = this.trySetEncoderParam(
+        osn,
+        encoderId,
+        ['cqp', 'Reccqp', 'cq', 'Reccq'],
+        cq
+      )
+      applied.preset = this.trySetEncoderParam(
+        osn,
+        encoderId,
+        ['preset', 'Recpreset', 'Recpreset2'],
+        'p5'
+      )
+      applied.profile = this.trySetEncoderParam(osn, encoderId, ['profile', 'Recprofile'], 'high')
+      applied.psycho_aq = this.trySetEncoderParam(
+        osn,
+        encoderId,
+        ['psycho_aq', 'Recpsycho_aq'],
+        true
+      )
+      applied.lookahead = this.trySetEncoderParam(
+        osn,
+        encoderId,
+        ['lookahead', 'Reclookahead'],
+        true
+      )
+      return applied
+    }
+
+    applied.rate_control = this.trySetEncoderParam(osn, encoderId, ['rate_control', 'Recrate_control'], 'CQP')
+    applied.cqp = this.trySetEncoderParam(
+      osn,
+      encoderId,
+      ['cqp', 'Reccqp', 'cq', 'Reccq', 'crf', 'Reccrf'],
+      cq
+    )
+    return applied
+  }
+
+  private encoderSettingSubcategories(encoderId: string): string[] {
+    const variants = [
+      encoderId,
+      'Recording',
+      encoderId.replace(/^obs_/, ''),
+      encoderId.replace(/^jim_/, ''),
+      encoderId.replace(/^ffmpeg_/, '')
+    ]
+    return [...new Set(variants.filter(Boolean))]
+  }
+
+  private trySetSettingInSubcategory(
+    osn: Osn,
+    category: string,
+    subcategory: string,
+    parameter: string,
+    value: unknown
+  ): boolean {
+    try {
+      const settings = osn.NodeObs.OBS_settings_getSettings(category).data
+      const sub = settings.find((s: Osn) => s.nameSubCategory === subcategory)
+      if (!sub) return false
+      let found = false
+      for (const param of sub.parameters) {
+        if (param.name === parameter) {
+          param.currentValue = value
+          found = true
+        }
+      }
+      if (!found) return false
+      osn.NodeObs.OBS_settings_saveSettings(category, settings)
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  private trySetEncoderParam(
+    osn: Osn,
+    encoderId: string,
+    paramNames: string[],
+    value: unknown
+  ): string | undefined {
+    for (const sub of this.encoderSettingSubcategories(encoderId)) {
+      for (const name of paramNames) {
+        if (this.trySetSettingInSubcategory(osn, 'Output', sub, name, value)) {
+          return `${sub}.${name}`
+        }
+      }
+    }
+    for (const name of paramNames) {
+      try {
+        this.setSetting(osn, 'Output', name, value)
+        return name
+      } catch {
+        // 部分 OSN 构建无该项
+      }
+    }
+    return undefined
   }
 
   private resolveDesktopAudioDeviceId(osn: Osn): string {
@@ -400,7 +564,7 @@ export class ObsEngine {
       return
     }
 
-    const uniform = Math.min(bw / sw, bh / sh)
+    const uniform = Math.min(1, bw / sw, bh / sh)
     const displayW = sw * uniform
     const displayH = sh * uniform
     const posX = (bw - displayW) / 2
@@ -603,6 +767,79 @@ export class ObsEngine {
   }
 
   /**
+   * 采集验证后：输出分辨率贴合真实采集源（禁止 upscale），窗口模式限制帧率。
+   */
+  private finalizeCaptureOutput(osn: Osn, cs2Info: Cs2WindowInfo | null): void {
+    const scene = this.scene
+    if (!scene) return
+    const items = scene.getItems?.() ?? []
+    const item = items[0]
+    if (!item) return
+
+    const dims = this.readSourceDimensions(item)
+    const sw = dims.width > 0 ? dims.width : cs2Info?.width ?? 0
+    const sh = dims.height > 0 ? dims.height : cs2Info?.height ?? 0
+    if (sw < ObsEngine.MIN_CAPTURE_WIDTH || sh < ObsEngine.MIN_CAPTURE_HEIGHT) return
+
+    const windowed = cs2Info ? !cs2Info.isFullscreenLikely : true
+    this.fitOutputToCaptureSource(osn, sw, sh, windowed)
+    this.refitSceneItemFromCapture(item, cs2Info)
+  }
+
+  private fitOutputToCaptureSource(
+    osn: Osn,
+    sourceWidth: number,
+    sourceHeight: number,
+    windowedCapture: boolean
+  ): void {
+    const d = this.display!
+    const quality = this.recording?.recordingQuality ?? '1080p'
+    const requested = this.recording?.recordingFps ?? 60
+    const planned = planRecordingCanvas(quality)
+    const capped = capOutputToSource(sourceWidth, sourceHeight, planned)
+    const fps = effectiveRecordingFps(requested, windowedCapture)
+
+    const changed =
+      capped.outputWidth !== d.outputWidth ||
+      capped.outputHeight !== d.outputHeight ||
+      fps !== this.effectiveFps
+
+    if (!changed) return
+
+    d.baseWidth = capped.baseWidth
+    d.baseHeight = capped.baseHeight
+    d.outputWidth = capped.outputWidth
+    d.outputHeight = capped.outputHeight
+    this.effectiveFps = fps
+    this.qualityCq = recordingQualityCq(quality, fps)
+    this.qualityModeLabel = recordingQualityModeLabel(quality, this.selectedEncoder, fps)
+    const warnings: string[] = []
+    if (windowedCapture && requested > 60) {
+      warnings.push(`窗口模式采集，帧率已限制为 60fps（设置 ${requested}fps）`)
+    }
+    if (capped.outputWidth < planned.outputWidth || capped.outputHeight < planned.outputHeight) {
+      warnings.push(
+        `采集源 ${sourceWidth}×${sourceHeight}，输出已限制为 ${capped.outputWidth}×${capped.outputHeight}（禁止放大）`
+      )
+    }
+    if (warnings.length > 0) {
+      this.encoderWarning = warnings.join('；')
+    }
+    this.applyVideoOutput(osn, capped.outputWidth, capped.outputHeight, fps)
+    this.applyRecordingQuality(osn, this.selectedEncoder, quality)
+    this.log(
+      'OBS output fit to capture',
+      JSON.stringify({
+        source: `${sourceWidth}x${sourceHeight}`,
+        output: `${capped.outputWidth}x${capped.outputHeight}`,
+        requestedFps: requested,
+        effectiveFps: fps,
+        windowedCapture
+      })
+    )
+  }
+
+  /**
    * 对局录制：game_capture 为主；按 CS2 窗口/全屏状态选择策略；验证出帧后再采用。
    */
   async prepareMatchCapture(): Promise<string> {
@@ -631,6 +868,7 @@ export class ObsEngine {
             ? 'game_capture (any_fullscreen)'
             : `game_capture (window) ${cap.window}`
         this.log('OBS match capture', label)
+        this.finalizeCaptureOutput(osn, cs2Info)
         return 'game_capture'
       } catch (err) {
         this.log(
@@ -649,6 +887,7 @@ export class ObsEngine {
         if (item && (await this.verifyCaptureActive(item))) {
           this.refitSceneItemFromCapture(item, cs2Info)
           this.log('OBS match capture fallback', `window_capture ${window}`)
+          this.finalizeCaptureOutput(osn, cs2Info)
           return 'window_capture_fallback'
         }
         throw new Error('window_capture inactive')
@@ -665,6 +904,7 @@ export class ObsEngine {
     if (monitorItem) {
       this.refitSceneItemFromCapture(monitorItem, cs2Info)
     }
+    this.finalizeCaptureOutput(osn, cs2Info)
     return 'monitor_capture_fallback'
   }
 

@@ -1,5 +1,5 @@
 import type { AppSettings, RecordingMode } from '../../../shared/settings'
-import type { Cs2IntegrationStatus, MockMatchPhase } from '../../../shared/recording-types'
+import type { Cs2IntegrationStatus, MockMatchPhase, ObsRuntimeInfo } from '../../../shared/recording-types'
 
 export type RecordingStatusTone = 'ok' | 'busy' | 'warn' | 'danger'
 
@@ -36,12 +36,19 @@ export interface RecordingControlModel {
   ringControl: RingControlView | null
 }
 
-export function buildRecordingParams(settings: AppSettings | null): RecordingParamChip[] {
+export function buildRecordingParams(
+  settings: AppSettings | null,
+  obsRuntime?: ObsRuntimeInfo | null
+): RecordingParamChip[] {
   if (!settings) return [{ value: '—' }]
-  return [
+  const chips: RecordingParamChip[] = [
     { value: settings.recordingQuality },
     { value: `${settings.recordingFps}fps` }
   ]
+  if (obsRuntime?.qualityModeLabel) {
+    chips.push({ value: `${obsRuntime.qualityModeLabel}（质量优先）` })
+  }
+  return chips
 }
 
 function isActivePhase(phase: MockMatchPhase): boolean {
@@ -67,12 +74,16 @@ function buildCircle(
 export function buildRecordingControlModel(
   settings: AppSettings | null,
   cs2: Cs2IntegrationStatus | null,
-  options?: { settingsBusy?: boolean; manualActionBusy?: boolean }
+  options?: {
+    settingsBusy?: boolean
+    manualActionBusy?: boolean
+    obsRuntime?: ObsRuntimeInfo | null
+  }
 ): RecordingControlModel {
   const mode = settings?.recordingMode ?? 'auto'
   const keepFullMatch = settings?.keepFullMatch ?? true
   const manualActionBusy = options?.manualActionBusy ?? false
-  const params = buildRecordingParams(settings)
+  const params = buildRecordingParams(settings, options?.obsRuntime)
   const base = { mode, params }
 
   if (!cs2) {

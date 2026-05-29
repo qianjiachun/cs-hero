@@ -48,6 +48,7 @@ export class GameDetectionService {
         this.recorder.getRecordingMode() === 'auto'
       ) {
         await this.recorder.finishMatch('process_exit')
+        this.integration.broadcastStatus()
       }
     } else if (!this.cs2WasRunning && running) {
       log('GameDetection: cs2.exe started')

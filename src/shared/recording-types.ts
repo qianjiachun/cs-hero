@@ -128,6 +128,10 @@ export interface ObsRuntimeInfo {
   recordingFps: number
   recordingQuality: '720p' | '1080p' | '1440p'
   videoBitrateKbps: number
+  /** CQP/CRF 质量值（质量优先模式） */
+  qualityCq?: number
+  /** 用户可读的编码质量标签，如「CQP 18（质量优先）」 */
+  qualityModeLabel?: string
   encoderWarning?: string
   /** 用户可读的自动采集说明 */
   captureModeLabel: string

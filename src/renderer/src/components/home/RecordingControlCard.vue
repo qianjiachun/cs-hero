@@ -16,7 +16,7 @@ import {
   X
 } from 'lucide-vue-next'
 import type { AppSettings, RecordingMode } from '../../../../shared/settings'
-import type { Cs2IntegrationStatus } from '../../../../shared/recording-types'
+import type { Cs2IntegrationStatus, ObsRuntimeInfo } from '../../../../shared/recording-types'
 import {
   buildRecordingControlModel,
   formatRecordingTimer
@@ -37,10 +37,14 @@ const emit = defineEmits<{
   (e: 'manual-stop'): void
 }>()
 
+const obsRuntime = ref<ObsRuntimeInfo | null>(null)
+let unsubObsRuntime: (() => void) | undefined
+
 const model = computed(() =>
   buildRecordingControlModel(props.settings, props.cs2Status, {
     settingsBusy: props.settingsBusy,
-    manualActionBusy: props.manualActionBusy
+    manualActionBusy: props.manualActionBusy,
+    obsRuntime: obsRuntime.value
   })
 )
 
@@ -200,8 +204,29 @@ watch(
   { immediate: true }
 )
 
-onMounted(syncTimerFromStatus)
-onUnmounted(stopTimerTick)
+async function refreshObsRuntime(): Promise<void> {
+  if (!window.csHero) return
+  try {
+    obsRuntime.value = await window.csHero.getObsRuntimeInfo()
+  } catch (err) {
+    console.error(err)
+  }
+}
+
+onMounted(() => {
+  syncTimerFromStatus()
+  void refreshObsRuntime()
+  if (window.csHero) {
+    unsubObsRuntime = window.csHero.onObsRuntimeChanged((info) => {
+      obsRuntime.value = info
+    })
+  }
+})
+onUnmounted(() => {
+  stopTimerTick()
+  unsubObsRuntime?.()
+  unsubObsRuntime = undefined
+})
 
 function selectMode(mode: RecordingMode): void {
   if (!model.value.canChangeMode || model.value.mode === mode) return

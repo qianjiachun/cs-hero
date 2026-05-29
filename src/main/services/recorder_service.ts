@@ -430,120 +430,128 @@ export class RecorderService {
     let remuxOk = true
     const clipErrors: string[] = []
     let sourceMkv = ''
+    let generatedClipCount = 0
 
     try {
-      const mkvPath = await this.obs.stopRecording()
-      if (!mkvPath || !fs.existsSync(mkvPath)) {
-        throw new Error('没有录制到视频文件')
+      try {
+        const mkvPath = await this.obs.stopRecording()
+        if (!mkvPath || !fs.existsSync(mkvPath)) {
+          throw new Error('没有录制到视频文件')
+        }
+        sourceMkv = mkvPath
+      } catch (err) {
+        this.state = 'idle'
+        this.finishing = false
+        this.error = err instanceof Error ? err.message : String(err)
+        this.setMessage('停止录制失败')
+        logError('Stop recording failed', err)
+        this.emitStatus()
+        throw err
       }
-      sourceMkv = mkvPath
-    } catch (err) {
+
+      const outputMp4 = path.join(this.matchDir, 'full_match.mp4')
+      this.matchJsonPath = path.join(this.matchDir, 'match.json')
+
+      this.setMessage('正在生成 MP4…')
+      this.emitStatus()
+      try {
+        await this.ffmpeg.remuxMkvToMp4(sourceMkv, outputMp4)
+        this.outputVideo = outputMp4
+      } catch (err) {
+        remuxOk = false
+        const msg = err instanceof Error ? err.message : String(err)
+        clipErrors.push(`remux: ${msg}`)
+        logError('Remux failed', err)
+      }
+
+      const settings = loadSettings()
+      const shouldGenerateClips = this.matchSource !== 'manual'
+      const killBookmarks = this.bookmarks.filter((b) => b.type === 'kill')
+
+      if (shouldGenerateClips && remuxOk && fs.existsSync(outputMp4) && killBookmarks.length > 0) {
+        this.state = 'clipping'
+        this.setMessage('正在生成片段…')
+        this.emitStatus()
+        const clipsDir = path.join(this.matchDir, 'clips')
+
+        try {
+          const result = await this.clipService.generateKillClips(
+            outputMp4,
+            clipsDir,
+            killBookmarks,
+            settings
+          )
+          generatedClipCount = result.clips.length
+          clipErrors.push(...result.errors)
+          this.clipCount = generatedClipCount
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err)
+          clipErrors.push(`clips: ${msg}`)
+          logError('Clip generation failed', err)
+        }
+      } else if (!shouldGenerateClips && remuxOk) {
+        this.setMessage('正在保存录像…')
+        log('Manual match: skip clip generation', this.matchId)
+      }
+
+      let fullMatchRetained = true
+      if (
+        shouldGenerateClips &&
+        remuxOk &&
+        fs.existsSync(outputMp4) &&
+        !settings.keepFullMatch &&
+        generatedClipCount > 0 &&
+        clipErrors.length === 0
+      ) {
+        try {
+          fs.unlinkSync(outputMp4)
+          fullMatchRetained = false
+          this.outputVideo = ''
+          log('full_match removed per keepFullMatch=false', this.matchId)
+        } catch (err) {
+          logError('Failed to remove full_match.mp4', err)
+          fullMatchRetained = true
+        }
+      }
+
+      const startTime = this.startedAt ?? endedAt
+      const matchJson: MatchJson = {
+        id: this.matchId,
+        map: this.mapName,
+        start_time: startTime.toISOString(),
+        end_time: endedAt.toISOString(),
+        duration: Math.round((endedAt.getTime() - startTime.getTime()) / 1000),
+        capture_method: this.captureMethod,
+        encoder: this.encoderLabel,
+        status: remuxOk ? 'complete' : 'incomplete',
+        source: this.matchSource,
+        source_mkv: sourceMkv,
+        full_match_retained: fullMatchRetained,
+        bookmarks: this.bookmarks.map(({ type, time }) => ({ type, time })),
+        ...(clipErrors.length > 0 ? { clip_errors: clipErrors } : {}),
+        ...(this.endedReason ? { ended_reason: this.endedReason } : {})
+      }
+
+      fs.writeFileSync(this.matchJsonPath, JSON.stringify(matchJson, null, 2), 'utf-8')
+
       this.state = 'idle'
       this.finishing = false
-      this.error = err instanceof Error ? err.message : String(err)
-      this.setMessage('停止录制失败')
-      logError('Stop recording failed', err)
-      throw err
-    }
+      this.bookmarkCount = this.bookmarks.length
+      this.clipCount = generatedClipCount
 
-    const outputMp4 = path.join(this.matchDir, 'full_match.mp4')
-    this.matchJsonPath = path.join(this.matchDir, 'match.json')
-
-    try {
-      this.setMessage('正在生成 MP4…')
-      await this.ffmpeg.remuxMkvToMp4(sourceMkv, outputMp4)
-      this.outputVideo = outputMp4
-    } catch (err) {
-      remuxOk = false
-      const msg = err instanceof Error ? err.message : String(err)
-      clipErrors.push(`remux: ${msg}`)
-      logError('Remux failed', err)
-    }
-
-    let generatedClipCount = 0
-    const settings = loadSettings()
-    const shouldGenerateClips = this.matchSource !== 'manual'
-
-    if (shouldGenerateClips && remuxOk && fs.existsSync(outputMp4)) {
-      this.state = 'clipping'
-      this.setMessage('正在生成片段…')
-      const killBookmarks = this.bookmarks.filter((b) => b.type === 'kill')
-      const clipsDir = path.join(this.matchDir, 'clips')
-
-      try {
-        const result = await this.clipService.generateKillClips(
-          outputMp4,
-          clipsDir,
-          killBookmarks,
-          settings
-        )
-        generatedClipCount = result.clips.length
-        clipErrors.push(...result.errors)
-        this.clipCount = generatedClipCount
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err)
-        clipErrors.push(`clips: ${msg}`)
-        logError('Clip generation failed', err)
+      if (!remuxOk) {
+        this.error = 'MKV 已生成，但 remux 为 MP4 失败'
+        this.setMessage('对局结束（remux 失败）')
+        this.emitStatus()
+        throw new Error(this.error)
       }
-    } else if (!shouldGenerateClips && remuxOk) {
-      this.setMessage('正在保存录像…')
-      log('Manual match: skip clip generation', this.matchId)
+
+      this.setMessage('对局完成')
+      log('Match complete', this.matchDir, `clips=${generatedClipCount}`, `reason=${this.endedReason}`)
+      return matchJson
+    } finally {
+      this.emitStatus()
     }
-
-    let fullMatchRetained = true
-    if (
-      shouldGenerateClips &&
-      remuxOk &&
-      fs.existsSync(outputMp4) &&
-      !settings.keepFullMatch &&
-      generatedClipCount > 0 &&
-      clipErrors.length === 0
-    ) {
-      try {
-        fs.unlinkSync(outputMp4)
-        fullMatchRetained = false
-        this.outputVideo = ''
-        log('full_match removed per keepFullMatch=false', this.matchId)
-      } catch (err) {
-        logError('Failed to remove full_match.mp4', err)
-        fullMatchRetained = true
-      }
-    }
-
-    const startTime = this.startedAt ?? endedAt
-    const matchJson: MatchJson = {
-      id: this.matchId,
-      map: this.mapName,
-      start_time: startTime.toISOString(),
-      end_time: endedAt.toISOString(),
-      duration: Math.round((endedAt.getTime() - startTime.getTime()) / 1000),
-      capture_method: this.captureMethod,
-      encoder: this.encoderLabel,
-      status: remuxOk ? 'complete' : 'incomplete',
-      source: this.matchSource,
-      source_mkv: sourceMkv,
-      full_match_retained: fullMatchRetained,
-      bookmarks: this.bookmarks.map(({ type, time }) => ({ type, time })),
-      ...(clipErrors.length > 0 ? { clip_errors: clipErrors } : {}),
-      ...(this.endedReason ? { ended_reason: this.endedReason } : {})
-    }
-
-    fs.writeFileSync(this.matchJsonPath, JSON.stringify(matchJson, null, 2), 'utf-8')
-
-    this.state = 'idle'
-    this.finishing = false
-    this.bookmarkCount = this.bookmarks.length
-    this.clipCount = generatedClipCount
-
-    if (!remuxOk) {
-      this.error = 'MKV 已生成，但 remux 为 MP4 失败'
-      this.setMessage('对局结束（remux 失败）')
-      throw new Error(this.error)
-    }
-
-    this.setMessage('对局完成')
-    log('Match complete', this.matchDir, `clips=${generatedClipCount}`, `reason=${this.endedReason}`)
-    return matchJson
   }
 
   resetCompleted(): void {

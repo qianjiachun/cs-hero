@@ -40,6 +40,8 @@ export class ObsService {
         recordingFps: raw.recordingFps,
         recordingQuality: raw.recordingQuality,
         videoBitrateKbps: raw.videoBitrateKbps,
+        qualityCq: raw.qualityCq,
+        qualityModeLabel: raw.qualityModeLabel,
         encoderWarning: raw.encoderWarning,
         captureModeLabel: raw.captureModeLabel,
         recordingDisplayLabel: raw.recordingDisplayLabel

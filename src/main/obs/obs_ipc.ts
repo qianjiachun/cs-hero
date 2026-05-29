@@ -49,6 +49,10 @@ export interface ObsRuntimeInfoPayload {
   recordingFps: number
   recordingQuality: AppSettings['recordingQuality']
   videoBitrateKbps: number
+  /** CQP/CRF 质量值（质量优先模式） */
+  qualityCq: number
+  /** 用户可读的编码质量标签，如「CQP 18」 */
+  qualityModeLabel: string
   encoderWarning?: string
   captureModeLabel: string
   recordingDisplayLabel: string
